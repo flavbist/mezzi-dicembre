@@ -65,7 +65,7 @@
             const date = new Date();
             const yearMonth = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}`;
             const random = Math.random().toString(36).substring(2, 5).toUpperCase();
-            const plateClean = plate.replace(/\s/g, '').substring(0, 2).toUpperCase();
+            const plateClean = (plate || 'XX').replace(/\s/g, '').substring(0, 2).toUpperCase();
             return `SV-${yearMonth}-${plateClean}${random}`;
         };
 
@@ -157,7 +157,6 @@
                     const db = getFirestore(initializeApp(getActiveConfig()));
                     const appId = typeof __app_id !== 'undefined' ? __app_id : 'special-vehicles-archive';
                     
-                    // Aggiungiamo il codice annuncio al volo
                     const finalData = {
                         ...data,
                         adCode: generateAdCode(data.plate),
