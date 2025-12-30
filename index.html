@@ -50,16 +50,15 @@
 
         /**
          * NOTA PER LA PUBBLICAZIONE SU GITHUB:
-         * Se vuoi che i dati vengano salvati, devi creare un progetto su console.firebase.google.com,
-         * abilitare Firestore e l'autenticazione anonima, e incollare qui sotto le tue chiavi.
+         * Configurazione Firebase aggiornata con le chiavi fornite dall'utente.
          */
         const MANUAL_FIREBASE_CONFIG = {
-            apiKey: "INSERISCI_QUI_LA_TUA_API_KEY",
-            authDomain: "tuo-progetto.firebaseapp.com",
-            projectId: "tuo-progetto",
-            storageBucket: "tuo-progetto.appspot.com",
-            messagingSenderId: "0000000000",
-            appId: "1:0000000000:web:xxxxxxxxxxxx"
+            apiKey: "AIzaSyC0ge7t486bOmNHiQcDWdtr3IbxlCGzAWM",
+            authDomain: "mezzi-2.firebaseapp.com",
+            projectId: "mezzi-2",
+            storageBucket: "mezzi-2.firebasestorage.app",
+            messagingSenderId: "258617794260",
+            appId: "1:258617794260:web:3d449f24017df4615fa541"
         };
 
         const App = () => {
@@ -76,11 +75,8 @@
                 if (typeof __firebase_config !== 'undefined') {
                     return JSON.parse(__firebase_config);
                 }
-                // Se siamo fuori dal Canvas, proviamo a usare la manuale se compilata
-                if (MANUAL_FIREBASE_CONFIG.apiKey !== "INSERISCI_QUI_LA_TUA_API_KEY") {
-                    return MANUAL_FIREBASE_CONFIG;
-                }
-                return null;
+                // Se siamo fuori dal Canvas, usiamo la configurazione manuale
+                return MANUAL_FIREBASE_CONFIG;
             };
 
             useEffect(() => {
@@ -93,8 +89,8 @@
                 
                 const config = getActiveConfig();
                 
-                if (!config) {
-                    setErrorMsg("Configurazione Firebase mancante. L'app non può collegarsi al database fuori dall'anteprima.");
+                if (!config || !config.apiKey) {
+                    setErrorMsg("Configurazione Firebase mancante o errata.");
                     setLoading(false);
                     return;
                 }
@@ -115,7 +111,7 @@
                         }
                     } catch (err) { 
                         console.error("Auth Error:", err);
-                        setErrorMsg("Errore di autenticazione Firebase."); 
+                        setErrorMsg("Errore di autenticazione Firebase. Verifica di aver abilitato l'Accesso Anonimo."); 
                     }
                 };
                 initAuth();
@@ -124,7 +120,6 @@
                     setUser(u);
                     if (u) {
                         const { collection, query, onSnapshot } = window.FirebaseLib;
-                        const colPath = `/artifacts/${appId}/public/data/vehicles`;
                         const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'vehicles');
                         const q = query(colRef);
                         
@@ -200,14 +195,10 @@
                             <div className="bg-amber-50 border-l-4 border-amber-500 text-amber-800 p-6 mb-8 rounded-r-2xl shadow-sm">
                                 <div className="flex items-center gap-3 mb-2">
                                     <i className="fa-solid fa-triangle-exclamation text-xl text-amber-600"></i>
-                                    <h3 className="font-black text-lg">Configurazione Richiesta</h3>
+                                    <h3 className="font-black text-lg">Problema di Connessione</h3>
                                 </div>
-                                <p className="text-sm leading-relaxed">
-                                    Stai visualizzando l'app fuori dall'ambiente protetto. Per farla funzionare sul tuo sito (GitHub Pages), devi inserire le tue chiavi Firebase nel codice sorgente alla variabile <strong>MANUAL_FIREBASE_CONFIG</strong>.
-                                </p>
-                                <div className="mt-4 p-3 bg-white/50 rounded-lg font-mono text-xs overflow-auto">
-                                    console.firebase.google.com &gt; Project Settings &gt; General &gt; Your Apps
-                                </div>
+                                <p className="text-sm leading-relaxed">{errorMsg}</p>
+                                <p className="text-xs mt-2 opacity-70 italic">Verifica su console.firebase.google.com che Firestore e l'Authentication (Anonymous) siano attivi.</p>
                             </div>
                         )}
                         {view === 'home' && <PublicGallery vehicles={vehicles} />}
