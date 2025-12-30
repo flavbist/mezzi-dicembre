@@ -47,9 +47,8 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 
-        /**
-         * CONFIGURAZIONE FIREBASE AGGIORNATA
-         */
+        const apiKey = ""; // API Key fornita dall'ambiente
+
         const MANUAL_FIREBASE_CONFIG = {
             apiKey: "AIzaSyC0ge7t486bOmNHiQcDWdtr3IbxlCGzAWM",
             authDomain: "mezzi-2.firebaseapp.com",
@@ -59,7 +58,6 @@
             appId: "1:258617794260:web:3d449f24017df4615fa541"
         };
 
-        // Funzione per generare un codice annuncio univoco (es: SV-202512-AB123)
         const generateAdCode = (plate) => {
             const date = new Date();
             const yearMonth = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -108,7 +106,7 @@
                             await signInAnonymously(auth);
                         }
                     } catch (err) { 
-                        setErrorMsg("Errore Autenticazione: assicurati che l'accesso anonimo sia attivo su Firebase Console."); 
+                        setErrorMsg("Errore Autenticazione Cloud attivo."); 
                     }
                 };
                 initAuth();
@@ -117,7 +115,6 @@
                     setUser(u);
                     if (u) {
                         const { collection, query, onSnapshot } = window.FirebaseLib;
-                        // Regola 1: Percorso obbligatorio per la persistenza
                         const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'vehicles');
                         const q = query(colRef);
                         
@@ -125,7 +122,7 @@
                             setVehicles(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })));
                             setLoading(false);
                         }, (err) => { 
-                            setErrorMsg("Errore Database: verifica le Regole di Sicurezza di Firestore."); 
+                            setErrorMsg("Errore Database Cloud."); 
                             setLoading(false); 
                         });
                         return () => unsubscribeData();
@@ -194,7 +191,7 @@
                     <main className="flex-grow max-w-7xl mx-auto px-4 py-8 w-full fade-in">
                         {errorMsg && (
                             <div className="bg-orange-50 border-l-4 border-orange-500 text-orange-800 p-6 mb-8 rounded-r-2xl shadow-sm">
-                                <div className="flex items-center gap-3 mb-2"><i className="fa-solid fa-triangle-exclamation text-xl"></i><h3 className="font-black text-lg">Nota Tecnica</h3></div>
+                                <div className="flex items-center gap-3 mb-2"><i className="fa-solid fa-triangle-exclamation text-xl"></i><h3 className="font-black text-lg">Nota Cloud</h3></div>
                                 <p className="text-sm font-medium">{errorMsg}</p>
                             </div>
                         )}
@@ -210,7 +207,7 @@
             );
         };
 
-        const Button = ({ children, onClick, variant = 'primary', className = '', disabled = false }) => {
+            const Button = ({ children, onClick, variant = 'primary', className = '', disabled = false }) => {
             const styles = {
                 primary: "bg-orange-600 text-white hover:bg-orange-700 shadow-lg shadow-orange-500/20",
                 secondary: "bg-slate-800 text-slate-300 hover:bg-slate-700",
@@ -257,7 +254,7 @@
                         {filtered.map(v => (
                             <div key={v.id} onClick={() => setSelected(v)} className="bg-white rounded-[2.5rem] overflow-hidden shadow-sm hover:shadow-2xl transition-all cursor-pointer group border border-slate-100 card-zoom flex flex-col">
                                 <div className="aspect-[4/3] bg-slate-100 overflow-hidden relative">
-                                    {v.images?.[0] ? <img src={v.images[0]} className="w-full h-full object-cover transition-transform duration-700" /> : <div className="w-full h-full flex items-center justify-center text-slate-300"><i className="fa-solid fa-truck text-5xl"></i></div>}
+                                    {v.imageUrl ? <img src={v.imageUrl} className="w-full h-full object-cover transition-transform duration-700" /> : <div className="w-full h-full flex items-center justify-center text-slate-300"><i className="fa-solid fa-truck text-5xl"></i></div>}
                                     <div className="absolute top-4 left-4 bg-slate-900/90 text-white px-3 py-1 rounded-full font-mono font-bold text-[10px] backdrop-blur uppercase tracking-widest">{v.adCode}</div>
                                     <div className="absolute bottom-4 right-4 bg-orange-600 text-white px-3 py-1 rounded-lg font-mono font-bold text-xs shadow-lg">{v.plate}</div>
                                 </div>
@@ -280,7 +277,7 @@
                                 <button onClick={() => setSelected(null)} className="absolute top-8 right-8 text-slate-300 hover:text-orange-500 transition-colors"><i className="fa-solid fa-circle-xmark text-4xl"></i></button>
                                 
                                 <div className="aspect-video rounded-[2rem] overflow-hidden mb-8 shadow-inner bg-slate-100">
-                                    {selected.images?.[0] && <img src={selected.images[0]} className="w-full h-full object-cover" />}
+                                    {selected.imageUrl && <img src={selected.imageUrl} className="w-full h-full object-cover" />}
                                 </div>
 
                                 <div className="flex flex-col md:flex-row justify-between items-start gap-4 mb-6">
@@ -326,26 +323,33 @@
 
         const AdminDashboard = ({ vehicles, onAdd, onDelete }) => {
             const [form, setForm] = useState({ plate: '', description: '', price: '' });
-            const [images, setImages] = useState([]);
-            const [isUploading, setIsUploading] = useState(false);
+            const [isGenerating, setIsGenerating] = useState(false);
 
-            const handleFile = (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
-                setIsUploading(true);
-                const reader = new FileReader();
-                reader.onload = (ev) => {
-                    setImages([ev.target.result]);
-                    setIsUploading(false);
-                };
-                reader.readAsDataURL(file);
+            const generateVehicleImage = async (description) => {
+                try {
+                    const prompt = `Un veicolo commerciale o speciale descritto come: ${description}. Fotografia professionale in uno showroom o all'aperto, alta risoluzione, illuminazione perfetta.`;
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=${apiKey}`, {
+                        method: 'POST',
+                        body: JSON.stringify({ instances: { prompt }, parameters: { sampleCount: 1 } })
+                    });
+                    const result = await response.json();
+                    return `data:image/png;base64,${result.predictions[0].bytesBase64Encoded}`;
+                } catch (err) {
+                    console.error("Errore generazione immagine:", err);
+                    return null;
+                }
             };
 
-            const handleSubmit = () => {
+            const handleSubmit = async () => {
                 if (!form.plate || !form.description || !form.price) return alert("Compila tutti i campi.");
-                onAdd({...form, images});
+                
+                setIsGenerating(true);
+                const imageUrl = await generateVehicleImage(form.description);
+                
+                await onAdd({...form, imageUrl});
+                
                 setForm({ plate: '', description: '', price: '' });
-                setImages([]);
+                setIsGenerating(false);
             };
 
             return (
@@ -366,20 +370,15 @@
                                 <input type="number" placeholder="0.00" className="w-full p-5 bg-slate-50 rounded-2xl outline-none font-black text-orange-600 focus:ring-2 ring-orange-100 transition-all" value={form.price} onChange={e => setForm({...form, price: e.target.value})} />
                             </div>
                             
-                            <div className="pt-4">
-                                <label className="w-full flex flex-col items-center px-4 py-8 bg-slate-50 text-slate-400 rounded-[2rem] border-2 border-dashed border-slate-200 cursor-pointer hover:bg-orange-50 hover:border-orange-200 transition-all group">
-                                    {isUploading ? <i className="fa-solid fa-circle-notch fa-spin text-2xl text-orange-500"></i> : (
-                                        <>
-                                            <i className="fa-solid fa-camera text-3xl mb-3 group-hover:text-orange-500"></i>
-                                            <span className="text-xs font-bold uppercase tracking-widest">Aggiungi Foto</span>
-                                        </>
-                                    )}
-                                    <input type="file" onChange={handleFile} className="hidden" />
-                                </label>
+                            <div className="pt-4 text-center">
+                                <div className="p-6 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 text-slate-400">
+                                    <i className="fa-solid fa-wand-magic-sparkles text-2xl mb-2 text-orange-500"></i>
+                                    <p className="text-[10px] font-bold uppercase tracking-widest">Foto generata via AI al salvataggio</p>
+                                </div>
                             </div>
 
-                            <Button variant="primary" className="w-full py-5 mt-6 text-lg" onClick={handleSubmit}>
-                                <i className="fa-solid fa-plus-circle"></i> Salva nel Cloud
+                            <Button variant="primary" className="w-full py-5 mt-6 text-lg" onClick={handleSubmit} disabled={isGenerating}>
+                                {isGenerating ? <><i className="fa-solid fa-circle-notch fa-spin"></i> Elaborazione...</> : <><i className="fa-solid fa-plus-circle"></i> Pubblica Mezzo</>}
                             </Button>
                         </div>
                     </div>
@@ -402,8 +401,15 @@
                                     {vehicles.sort((a,b) => b.createdAt - a.createdAt).map(v => (
                                         <tr key={v.id} className="hover:bg-slate-50/50 transition-colors">
                                             <td className="p-8">
-                                                <div className="font-bold text-slate-800 text-lg leading-tight mb-1">{v.description}</div>
-                                                <div className="text-orange-600 font-black text-xl">€ {Number(v.price).toLocaleString('it-IT')}</div>
+                                                <div className="flex items-center gap-4">
+                                                    <div className="w-12 h-12 rounded-lg bg-slate-100 overflow-hidden shrink-0 shadow-sm border border-slate-200">
+                                                        {v.imageUrl && <img src={v.imageUrl} className="w-full h-full object-cover" />}
+                                                    </div>
+                                                    <div>
+                                                        <div className="font-bold text-slate-800 text-lg leading-tight mb-1">{v.description}</div>
+                                                        <div className="text-orange-600 font-black text-xl">€ {Number(v.price).toLocaleString('it-IT')}</div>
+                                                    </div>
+                                                </div>
                                             </td>
                                             <td className="p-8 font-mono text-xs">
                                                 <div className="text-slate-400 mb-1">{v.adCode}</div>
