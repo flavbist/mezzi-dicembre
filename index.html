@@ -23,7 +23,6 @@
         .fade-in { animation: fadeIn 0.3s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .modal-overlay { background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(10px); }
-        .search-glow:focus { box-shadow: 0 0 0 4px rgba(234, 88, 12, 0.1); }
         .card-zoom:hover img { transform: scale(1.1); }
     </style>
 </head>
@@ -46,8 +45,6 @@
 
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
-
-        const apiKey = ""; // API Key fornita dall'ambiente
 
         const MANUAL_FIREBASE_CONFIG = {
             apiKey: "AIzaSyC0ge7t486bOmNHiQcDWdtr3IbxlCGzAWM",
@@ -106,7 +103,7 @@
                             await signInAnonymously(auth);
                         }
                     } catch (err) { 
-                        setErrorMsg("Errore Autenticazione Cloud attivo."); 
+                        setErrorMsg("Errore Autenticazione Cloud."); 
                     }
                 };
                 initAuth();
@@ -170,7 +167,10 @@
 
             if (loading && !errorMsg) return (
                 <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white font-sans">
-                    <div className="text-center"><i className="fa-solid fa-circle-notch fa-spin text-4xl text-orange-500 mb-4"></i><p className="tracking-widest uppercase text-xs font-bold">Connessione a Mezzi-2 Cloud...</p></div>
+                    <div className="text-center">
+                        <i className="fa-solid fa-circle-notch fa-spin text-4xl text-orange-500 mb-4"></i>
+                        <p className="tracking-widest uppercase text-xs font-bold">Connessione Cloud...</p>
+                    </div>
                 </div>
             );
 
@@ -183,7 +183,7 @@
                                 <div><h1 className="text-xl font-bold">SpecialVehicles Archive</h1><p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none">Mezzi-2 Management</p></div>
                             </div>
                             <Button variant="secondary" onClick={() => setView(view === 'home' ? 'admin' : 'home')} className="!rounded-full text-xs">
-                                {view === 'home' ? <><i className="fa-solid fa-user-shield"></i> Staff Area</> : <><i className="fa-solid fa-house"></i> Home</>}
+                                {view === 'home' ? <><i className="fa-solid fa-user-shield"></i> Area Staff</> : <><i className="fa-solid fa-house"></i> Home</>}
                             </Button>
                         </div>
                     </header>
@@ -191,7 +191,7 @@
                     <main className="flex-grow max-w-7xl mx-auto px-4 py-8 w-full fade-in">
                         {errorMsg && (
                             <div className="bg-orange-50 border-l-4 border-orange-500 text-orange-800 p-6 mb-8 rounded-r-2xl shadow-sm">
-                                <div className="flex items-center gap-3 mb-2"><i className="fa-solid fa-triangle-exclamation text-xl"></i><h3 className="font-black text-lg">Nota Cloud</h3></div>
+                                <div className="flex items-center gap-3 mb-2"><i className="fa-solid fa-triangle-exclamation text-xl"></i><h3 className="font-black text-lg">Errore Cloud</h3></div>
                                 <p className="text-sm font-medium">{errorMsg}</p>
                             </div>
                         )}
@@ -207,7 +207,7 @@
             );
         };
 
-            const Button = ({ children, onClick, variant = 'primary', className = '', disabled = false }) => {
+        const Button = ({ children, onClick, variant = 'primary', className = '', disabled = false }) => {
             const styles = {
                 primary: "bg-orange-600 text-white hover:bg-orange-700 shadow-lg shadow-orange-500/20",
                 secondary: "bg-slate-800 text-slate-300 hover:bg-slate-700",
@@ -254,7 +254,7 @@
                         {filtered.map(v => (
                             <div key={v.id} onClick={() => setSelected(v)} className="bg-white rounded-[2.5rem] overflow-hidden shadow-sm hover:shadow-2xl transition-all cursor-pointer group border border-slate-100 card-zoom flex flex-col">
                                 <div className="aspect-[4/3] bg-slate-100 overflow-hidden relative">
-                                    {v.imageUrl ? <img src={v.imageUrl} className="w-full h-full object-cover transition-transform duration-700" /> : <div className="w-full h-full flex items-center justify-center text-slate-300"><i className="fa-solid fa-truck text-5xl"></i></div>}
+                                    {v.imageUrl ? <img src={v.imageUrl} className="w-full h-full object-cover transition-transform duration-700" /> : <div className="w-full h-full flex items-center justify-center text-slate-300"><i className="fa-solid fa-image text-5xl"></i></div>}
                                     <div className="absolute top-4 left-4 bg-slate-900/90 text-white px-3 py-1 rounded-full font-mono font-bold text-[10px] backdrop-blur uppercase tracking-widest">{v.adCode}</div>
                                     <div className="absolute bottom-4 right-4 bg-orange-600 text-white px-3 py-1 rounded-lg font-mono font-bold text-xs shadow-lg">{v.plate}</div>
                                 </div>
@@ -277,7 +277,7 @@
                                 <button onClick={() => setSelected(null)} className="absolute top-8 right-8 text-slate-300 hover:text-orange-500 transition-colors"><i className="fa-solid fa-circle-xmark text-4xl"></i></button>
                                 
                                 <div className="aspect-video rounded-[2rem] overflow-hidden mb-8 shadow-inner bg-slate-100">
-                                    {selected.imageUrl && <img src={selected.imageUrl} className="w-full h-full object-cover" />}
+                                    {selected.imageUrl ? <img src={selected.imageUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-300 italic">Nessuna foto disponibile</div>}
                                 </div>
 
                                 <div className="flex flex-col md:flex-row justify-between items-start gap-4 mb-6">
@@ -322,77 +322,125 @@
         };
 
         const AdminDashboard = ({ vehicles, onAdd, onDelete }) => {
-            const [form, setForm] = useState({ plate: '', description: '', price: '' });
-            const [isGenerating, setIsGenerating] = useState(false);
+            const [form, setForm] = useState({ plate: '', description: '', price: '', imageUrl: '' });
+            const [isSaving, setIsSaving] = useState(false);
 
-            const generateVehicleImage = async (description) => {
-                try {
-                    const prompt = `Un veicolo commerciale o speciale descritto come: ${description}. Fotografia professionale in uno showroom o all'aperto, alta risoluzione, illuminazione perfetta.`;
-                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=${apiKey}`, {
-                        method: 'POST',
-                        body: JSON.stringify({ instances: { prompt }, parameters: { sampleCount: 1 } })
-                    });
-                    const result = await response.json();
-                    return `data:image/png;base64,${result.predictions[0].bytesBase64Encoded}`;
-                } catch (err) {
-                    console.error("Errore generazione immagine:", err);
-                    return null;
+            const handleFileChange = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                // Controllo dimensione file (max 10MB per l'upload iniziale prima della compressione)
+                if (file.size > 10 * 1024 * 1024) {
+                    alert("Il file è troppo grande. Seleziona una foto più leggera.");
+                    return;
                 }
+
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        // Compressione automatica per restare sotto il limite Firestore (1MB)
+                        const canvas = document.createElement('canvas');
+                        let width = img.width;
+                        let height = img.height;
+                        
+                        // Ridimensiona se troppo grande (max 1200px)
+                        const maxDim = 1200;
+                        if (width > height) {
+                            if (width > maxDim) {
+                                height *= maxDim / width;
+                                width = maxDim;
+                            }
+                        } else {
+                            if (height > maxDim) {
+                                width *= maxDim / height;
+                                height = maxDim;
+                            }
+                        }
+                        
+                        canvas.width = width;
+                        canvas.height = height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, width, height);
+                        
+                        // Qualità 0.7 per ottimizzare spazio e visibilità
+                        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+                        setForm(prev => ({ ...prev, imageUrl: compressedBase64 }));
+                    };
+                    img.src = event.target.result;
+                };
+                reader.readAsDataURL(file);
             };
 
             const handleSubmit = async () => {
-                if (!form.plate || !form.description || !form.price) return alert("Compila tutti i campi.");
+                if (!form.plate || !form.description || !form.price) return alert("Compila i campi obbligatori (Targa, Modello, Prezzo).");
+                if (!form.imageUrl) return alert("Carica una foto del mezzo.");
                 
-                setIsGenerating(true);
-                const imageUrl = await generateVehicleImage(form.description);
-                
-                await onAdd({...form, imageUrl});
-                
-                setForm({ plate: '', description: '', price: '' });
-                setIsGenerating(false);
+                setIsSaving(true);
+                try {
+                    await onAdd(form);
+                    setForm({ plate: '', description: '', price: '', imageUrl: '' });
+                    // Resetta l'input file manuale
+                    document.getElementById('file-upload').value = '';
+                } catch (err) {
+                    alert("Errore nel salvataggio.");
+                } finally {
+                    setIsSaving(false);
+                }
             };
 
             return (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
                     <div className="lg:col-span-1 bg-white p-10 rounded-[3rem] shadow-xl h-fit border border-slate-100">
-                        <h3 className="text-2xl font-black mb-8 text-slate-800 tracking-tight italic">Nuovo Mezzo</h3>
+                        <h3 className="text-2xl font-black mb-8 text-slate-800 tracking-tight italic">Aggiungi Mezzo</h3>
                         <div className="space-y-5">
+                            <div className="flex flex-col gap-4">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 block">Foto Mezzo (Carica da PC)</label>
+                                <div className="relative border-2 border-dashed border-slate-200 rounded-3xl p-4 text-center group hover:border-orange-400 transition-colors">
+                                    {form.imageUrl ? (
+                                        <div className="relative aspect-video rounded-2xl overflow-hidden shadow-md">
+                                            <img src={form.imageUrl} className="w-full h-full object-cover" />
+                                            <button onClick={() => setForm({...form, imageUrl: ''})} className="absolute top-2 right-2 bg-red-500 text-white w-8 h-8 rounded-full shadow-lg"><i className="fa-solid fa-times"></i></button>
+                                        </div>
+                                    ) : (
+                                        <label htmlFor="file-upload" className="cursor-pointer py-8 flex flex-col items-center gap-2">
+                                            <i className="fa-solid fa-cloud-arrow-up text-3xl text-slate-300 group-hover:text-orange-500 transition-colors"></i>
+                                            <span className="text-xs font-bold text-slate-400">Scegli file o scatta foto</span>
+                                        </label>
+                                    )}
+                                    <input id="file-upload" type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
+                                </div>
+                            </div>
+
                             <div>
                                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Targa</label>
                                 <input type="text" placeholder="Targa" className="w-full p-5 bg-slate-50 rounded-2xl outline-none font-bold uppercase focus:ring-2 ring-orange-100 transition-all" value={form.plate} onChange={e => setForm({...form, plate: e.target.value})} />
                             </div>
                             <div>
-                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Descrizione / Modello</label>
-                                <input type="text" placeholder="Modello" className="w-full p-5 bg-slate-50 rounded-2xl outline-none focus:ring-2 ring-orange-100 transition-all" value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
+                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Modello / Descrizione</label>
+                                <input type="text" placeholder="Es. Man Truck 2024" className="w-full p-5 bg-slate-50 rounded-2xl outline-none focus:ring-2 ring-orange-100 transition-all" value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
                             </div>
                             <div>
                                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Prezzo (€)</label>
                                 <input type="number" placeholder="0.00" className="w-full p-5 bg-slate-50 rounded-2xl outline-none font-black text-orange-600 focus:ring-2 ring-orange-100 transition-all" value={form.price} onChange={e => setForm({...form, price: e.target.value})} />
                             </div>
-                            
-                            <div className="pt-4 text-center">
-                                <div className="p-6 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 text-slate-400">
-                                    <i className="fa-solid fa-wand-magic-sparkles text-2xl mb-2 text-orange-500"></i>
-                                    <p className="text-[10px] font-bold uppercase tracking-widest">Foto generata via AI al salvataggio</p>
-                                </div>
-                            </div>
 
-                            <Button variant="primary" className="w-full py-5 mt-6 text-lg" onClick={handleSubmit} disabled={isGenerating}>
-                                {isGenerating ? <><i className="fa-solid fa-circle-notch fa-spin"></i> Elaborazione...</> : <><i className="fa-solid fa-plus-circle"></i> Pubblica Mezzo</>}
+                            <Button variant="primary" className="w-full py-5 mt-6 text-lg" onClick={handleSubmit} disabled={isSaving}>
+                                {isSaving ? <><i className="fa-solid fa-circle-notch fa-spin"></i> Caricamento...</> : <><i className="fa-solid fa-cloud-arrow-up"></i> Pubblica Mezzo</>}
                             </Button>
                         </div>
                     </div>
 
                     <div className="lg:col-span-2 bg-white rounded-[3rem] shadow-xl overflow-hidden border border-slate-100">
                         <div className="bg-slate-900 p-8 text-white flex justify-between items-center">
-                            <h3 className="font-bold uppercase tracking-widest text-sm italic">Flotta Mezzi-2</h3>
+                            <h3 className="font-bold uppercase tracking-widest text-sm italic">Gestione Flotta Cloud</h3>
                             <span className="bg-orange-500 text-[10px] px-3 py-1 rounded-full font-black uppercase tracking-widest shadow-lg">{vehicles.length} Veicoli</span>
                         </div>
                         <div className="overflow-x-auto">
                             <table className="w-full text-left">
                                 <thead className="bg-slate-50 border-b border-slate-100 text-[10px] uppercase font-bold text-slate-400 tracking-widest">
                                     <tr>
-                                        <th className="p-8">Dettagli</th>
+                                        <th className="p-8">Mezzo</th>
                                         <th className="p-8">Codice/Targa</th>
                                         <th className="p-8 text-right">Azione</th>
                                     </tr>
@@ -402,7 +450,7 @@
                                         <tr key={v.id} className="hover:bg-slate-50/50 transition-colors">
                                             <td className="p-8">
                                                 <div className="flex items-center gap-4">
-                                                    <div className="w-12 h-12 rounded-lg bg-slate-100 overflow-hidden shrink-0 shadow-sm border border-slate-200">
+                                                    <div className="w-14 h-14 rounded-xl bg-slate-100 overflow-hidden shrink-0 shadow-sm border border-slate-200">
                                                         {v.imageUrl && <img src={v.imageUrl} className="w-full h-full object-cover" />}
                                                     </div>
                                                     <div>
@@ -412,16 +460,21 @@
                                                 </div>
                                             </td>
                                             <td className="p-8 font-mono text-xs">
-                                                <div className="text-slate-400 mb-1">{v.adCode}</div>
+                                                <div className="text-slate-400 mb-1 tracking-tighter">{v.adCode}</div>
                                                 <div className="bg-slate-100 inline-block px-3 py-1 rounded-lg font-bold uppercase">{v.plate}</div>
                                             </td>
                                             <td className="p-8 text-right">
-                                                <button onClick={() => confirm("Eliminare questo mezzo?") && onDelete(v.id)} className="w-12 h-12 rounded-2xl bg-red-50 text-red-400 hover:bg-red-500 hover:text-white transition-all">
+                                                <button onClick={() => confirm("Eliminare definitivamente questo mezzo?") && onDelete(v.id)} className="w-12 h-12 rounded-2xl bg-red-50 text-red-400 hover:bg-red-500 hover:text-white transition-all shadow-sm">
                                                     <i className="fa-solid fa-trash-can"></i>
                                                 </button>
                                             </td>
                                         </tr>
                                     ))}
+                                    {vehicles.length === 0 && (
+                                        <tr>
+                                            <td colSpan="3" className="p-20 text-center text-slate-300 italic uppercase tracking-widest font-bold">Nessun mezzo in archivio</td>
+                                        </tr>
+                                    )}
                                 </tbody>
                             </table>
                         </div>
