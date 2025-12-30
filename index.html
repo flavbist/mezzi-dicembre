@@ -50,15 +50,23 @@
         /**
          * CONFIGURAZIONE FIREBASE
          */
-        const MANUAL_FIREBASE_CONFIG = {
-            apiKey: "AIzaSyC0ge7t486bOmNHiQcDWdtr3IbxlCGzAWM",
-            authDomain: "mezzi-2.firebaseapp.com",
-            projectId: "mezzi-2",
-            storageBucket: "mezzi-2.firebasestorage.app",
-            messagingSenderId: "258617794260",
-            appId: "1:258617794260:web:3d449f24017df4615fa541"
-        };
+       // Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
 
+// Your web app's Firebase configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyC0ge7t486bOmNHiQcDWdtr3IbxlCGzAWM",
+  authDomain: "mezzi-2.firebaseapp.com",
+  projectId: "mezzi-2",
+  storageBucket: "mezzi-2.firebasestorage.app",
+  messagingSenderId: "258617794260",
+  appId: "1:258617794260:web:3d449f24017df4615fa541"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
         // Funzione per generare un codice annuncio univoco (es: SV-202512-AB123)
         const generateAdCode = (plate) => {
             const date = new Date();
@@ -441,3 +449,4 @@
     </script>
 </body>
 </html>
+
