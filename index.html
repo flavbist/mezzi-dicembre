@@ -32,162 +32,156 @@
 <body>
     <div id="root"></div>
 
-    <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
-        import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy, enableIndexedDbPersistence } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
 
-        window.FirebaseLib = { 
+        // Espongo le funzioni necessarie globalmente per React
+        window.FB = { 
             initializeApp, getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy,
-            getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken, enableIndexedDbPersistence
+            getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken
         };
-        
-        window.dispatchEvent(new Event('firebase-ready'));
+        window.dispatchEvent(new Event('fb-lib-ready'));
     </script>
 
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
 
-        // Configurazione Firebase univoca per questo progetto
-        const FALLBACK_CONFIG = {
-            apiKey: "AIzaSyC0ge7t486bOmNHiQcDWdtr3IbxlCGzAWM",
-            authDomain: "mezzi-2.firebaseapp.com",
-            projectId: "mezzi-2",
-            storageBucket: "mezzi-2.firebasestorage.app",
-            messagingSenderId: "258617794260",
-            appId: "1:258617794260:web:3d449f24017df4615fa541"
-        };
-
-        const generateAdCode = (plate) => {
-            const date = new Date();
-            const yearMonth = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}`;
-            const random = Math.random().toString(36).substring(2, 5).toUpperCase();
-            const plateClean = (plate || 'XX').replace(/\s/g, '').substring(0, 2).toUpperCase();
-            return `SV-${yearMonth}-${plateClean}${random}`;
-        };
-
         const App = () => {
-            const [fbReady, setFbReady] = useState(false);
-            const [view, setView] = useState('home'); 
-            const [vehicles, setVehicles] = useState([]);
+            const [ready, setReady] = useState(false);
             const [user, setUser] = useState(null);
+            const [vehicles, setVehicles] = useState([]);
+            const [view, setView] = useState('home');
             const [isAdmin, setIsAdmin] = useState(false);
             const [loading, setLoading] = useState(true);
-            const [errorMsg, setErrorMsg] = useState(null);
-            
-            const dbRef = useRef(null);
-            const authRef = useRef(null);
+            const [error, setError] = useState(null);
 
-            const getActiveConfig = () => {
-                try {
-                    if (typeof __firebase_config !== 'undefined' && __firebase_config) {
-                        return JSON.parse(__firebase_config);
-                    }
-                } catch(e) {}
-                return FALLBACK_CONFIG;
-            };
+            const db = useRef(null);
+            const auth = useRef(null);
 
-            // ID applicazione costante per sincronizzazione multi-dispositivo
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'mezzi-fleet-final-2025';
+            // Configurazione e Costanti
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'mezzi-speciali-2025-v1';
+            const firebaseConfig = typeof __firebase_config !== 'undefined' 
+                ? JSON.parse(__firebase_config) 
+                : {
+                    apiKey: "AIzaSyC0ge7t486bOmNHiQcDWdtr3IbxlCGzAWM",
+                    authDomain: "mezzi-2.firebaseapp.com",
+                    projectId: "mezzi-2",
+                    storageBucket: "mezzi-2.firebasestorage.app",
+                    messagingSenderId: "258617794260",
+                    appId: "1:258617794260:web:3d449f24017df4615fa541"
+                };
 
+            // 1. Attesa libreria Firebase
             useEffect(() => {
-                if (window.FirebaseLib) setFbReady(true);
-                else window.addEventListener('firebase-ready', () => setFbReady(true));
+                if (window.FB) setReady(true);
+                else window.addEventListener('fb-lib-ready', () => setReady(true));
             }, []);
 
+            // 2. Inizializzazione Auth (MANDATORIA PRIMA DI FIRESTORE)
             useEffect(() => {
-                if (!fbReady) return;
-                
-                const config = getActiveConfig();
-                const { initializeApp, getFirestore, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } = window.FirebaseLib;
-                
-                const app = initializeApp(config);
-                authRef.current = getAuth(app);
-                dbRef.current = getFirestore(app);
+                if (!ready) return;
 
-                const initAuth = async () => {
+                const app = window.FB.initializeApp(firebaseConfig);
+                db.current = window.FB.getFirestore(app);
+                auth.current = window.FB.getAuth(app);
+
+                const performAuth = async () => {
                     try {
                         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                            await signInWithCustomToken(authRef.current, __initial_auth_token);
+                            await window.FB.signInWithCustomToken(auth.current, __initial_auth_token);
                         } else {
-                            await signInAnonymously(authRef.current);
+                            await window.FB.signInAnonymously(auth.current);
                         }
-                    } catch (err) { 
-                        setErrorMsg("Errore di connessione al Cloud. Verifica la tua connessione internet."); 
+                    } catch (err) {
+                        console.error("Auth Error:", err);
+                        setError("Errore di autenticazione Cloud.");
                     }
                 };
-                initAuth();
 
-                const unsubscribeAuth = onAuthStateChanged(authRef.current, (u) => {
+                performAuth();
+
+                const unsubscribeAuth = window.FB.onAuthStateChanged(auth.current, (u) => {
+                    setUser(u);
                     if (u) {
-                        setUser(u);
-                        const { collection, query, onSnapshot } = window.FirebaseLib;
-                        const colPath = `artifacts/${appId}/public/data/vehicles`;
-                        const colRef = collection(dbRef.current, colPath);
-                        
-                        const unsubscribeData = onSnapshot(query(colRef), (snapshot) => {
-                            const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
-                            setVehicles(data);
-                            setLoading(false);
-                        }, (err) => { 
-                            console.error("Firestore Sync Error:", err);
-                            setErrorMsg("Impossibile sincronizzare i dati. Permessi negati o database offline.");
-                            setLoading(false);
-                        });
-                        return () => unsubscribeData();
+                        console.log("Autenticato con UID:", u.uid);
+                    } else {
+                        setLoading(false);
                     }
                 });
 
                 return () => unsubscribeAuth();
-            }, [fbReady]);
+            }, [ready]);
 
-            const handleLogin = (username, password) => {
-                if (username && username.trim().toUpperCase() === 'FLAVIO' && password === '1710') {
-                    setIsAdmin(true);
-                    return true;
-                }
-                return false;
+            // 3. Caricamento Dati (Solo se autenticato)
+            useEffect(() => {
+                if (!user || !db.current) return;
+
+                // Percorso rigoroso richiesto dal sistema
+                const colRef = window.FB.collection(db.current, 'artifacts', appId, 'public', 'data', 'vehicles');
+                
+                const unsubscribe = window.FB.onSnapshot(
+                    window.FB.query(colRef),
+                    (snapshot) => {
+                        const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+                        setVehicles(data);
+                        setLoading(false);
+                        setError(null);
+                    },
+                    (err) => {
+                        console.error("Firestore Read Error:", err);
+                        setError("Errore sincronizzazione: Accesso negato o database non configurato.");
+                        setLoading(false);
+                    }
+                );
+
+                return () => unsubscribe();
+            }, [user, appId]);
+
+            const generateAdCode = (plate) => {
+                const date = new Date();
+                const random = Math.random().toString(36).substring(2, 5).toUpperCase();
+                return `SV-${date.getFullYear()}${String(date.getMonth()+1).padStart(2,'0')}-${random}`;
             };
 
-            const addVehicle = async (data) => {
-                if (!user || !dbRef.current) {
-                    alert("Errore: Sessione non valida. Ricarica la pagina.");
-                    return;
+            const handleAddVehicle = async (data) => {
+                if (!user || !db.current) {
+                    throw new Error("Devi attendere la connessione al database.");
                 }
                 
                 try {
-                    const { collection, addDoc } = window.FirebaseLib;
-                    const finalData = {
+                    const colRef = window.FB.collection(db.current, 'artifacts', appId, 'public', 'data', 'vehicles');
+                    await window.FB.addDoc(colRef, {
                         ...data,
                         adCode: generateAdCode(data.plate),
                         createdAt: Date.now(),
-                        userId: user.uid
-                    };
-                    const colPath = `artifacts/${appId}/public/data/vehicles`;
-                    await addDoc(collection(dbRef.current, colPath), finalData);
+                        createdBy: user.uid,
+                        appId: appId // Metadato extra per sicurezza
+                    });
+                    console.log("Salvataggio completato con successo.");
                 } catch (err) {
-                    console.error("Add Error:", err);
-                    throw new Error("Salvataggio fallito sul Cloud.");
+                    console.error("Firestore Write Error:", err);
+                    throw new Error("Errore di scrittura: verifica la tua connessione o i permessi.");
                 }
             };
 
-            const deleteVehicle = async (id) => {
-                if (!user || !dbRef.current) return;
+            const handleDeleteVehicle = async (id) => {
+                if (!user || !db.current) return;
                 try {
-                    const { doc, deleteDoc } = window.FirebaseLib;
-                    const docPath = `artifacts/${appId}/public/data/vehicles/${id}`;
-                    await deleteDoc(doc(dbRef.current, docPath));
+                    const docRef = window.FB.doc(db.current, 'artifacts', appId, 'public', 'data', 'vehicles', id);
+                    await window.FB.deleteDoc(docRef);
                 } catch (err) {
+                    console.error("Delete Error:", err);
                     alert("Errore durante l'eliminazione.");
                 }
             };
 
-            if (loading && !errorMsg) return (
-                <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white">
+            if (loading) return (
+                <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white font-bold uppercase tracking-widest text-xs">
                     <div className="text-center">
-                        <i className="fa-solid fa-cloud-arrow-down fa-beat text-4xl text-orange-500 mb-4"></i>
-                        <p className="tracking-widest uppercase text-xs font-bold">Sincronizzazione Cloud...</p>
+                        <i className="fa-solid fa-circle-notch fa-spin text-3xl text-orange-500 mb-4"></i>
+                        <p>Connessione al Cloud...</p>
                     </div>
                 </div>
             );
@@ -199,118 +193,99 @@
                             <div className="flex items-center gap-3 cursor-pointer" onClick={() => setView('home')}>
                                 <i className="fa-solid fa-truck-pickup text-2xl text-orange-500"></i>
                                 <div>
-                                    <h1 className="text-xl font-bold leading-none">SpecialVehicles</h1>
-                                    <p className="text-[10px] text-green-500 font-bold uppercase tracking-widest mt-1">● Live Database</p>
+                                    <h1 className="text-xl font-bold leading-none italic">SpecialVehicles</h1>
+                                    <p className="text-[9px] text-green-500 font-bold uppercase tracking-widest mt-1">● Sistema Online v2.2</p>
                                 </div>
                             </div>
-                            <Button variant="secondary" onClick={() => setView(view === 'home' ? 'admin' : 'home')} className="!rounded-full text-xs">
-                                {view === 'home' ? <><i className="fa-solid fa-lock"></i> Pannello Staff</> : <><i className="fa-solid fa-house"></i> Vai alla Home</>}
-                            </Button>
+                            <button 
+                                onClick={() => setView(view === 'home' ? 'admin' : 'home')}
+                                className="bg-slate-800 text-slate-300 px-4 py-2 rounded-full text-xs font-bold hover:bg-slate-700 transition-colors"
+                            >
+                                {view === 'home' ? <><i className="fa-solid fa-lock mr-2"></i>Staff</> : <><i className="fa-solid fa-house mr-2"></i>Home</>}
+                            </button>
                         </div>
                     </header>
 
                     <main className="flex-grow max-w-7xl mx-auto px-4 py-8 w-full fade-in">
-                        {errorMsg && (
-                            <div className="bg-red-100 border-l-4 border-red-500 text-red-900 p-6 mb-8 rounded-r-2xl shadow-lg">
-                                <div className="flex items-center gap-3">
-                                    <i className="fa-solid fa-triangle-exclamation text-2xl"></i>
-                                    <div>
-                                        <p className="font-bold">Attenzione!</p>
-                                        <p className="text-sm">{errorMsg}</p>
-                                    </div>
-                                </div>
-                                <button onClick={() => window.location.reload()} className="mt-4 text-xs font-black uppercase bg-red-500 text-white px-4 py-2 rounded-lg">Riconnetti Ora</button>
+                        {error && (
+                            <div className="bg-red-500 text-white p-4 rounded-2xl mb-6 flex items-center gap-4 shadow-lg animate-pulse">
+                                <i className="fa-solid fa-triangle-exclamation text-xl"></i>
+                                <span className="font-bold text-sm uppercase">{error}</span>
                             </div>
                         )}
+                        
                         {view === 'home' && <PublicGallery vehicles={vehicles} />}
-                        {view === 'admin' && !isAdmin && <AdminLogin onLogin={handleLogin} />}
-                        {view === 'admin' && isAdmin && <AdminDashboard vehicles={vehicles} onAdd={addVehicle} onDelete={deleteVehicle} />}
+                        {view === 'admin' && !isAdmin && <AdminLogin onLogin={(u,p) => (u.toUpperCase()==='FLAVIO' && p==='1710' ? setIsAdmin(true) : false)} />}
+                        {view === 'admin' && isAdmin && <AdminDashboard vehicles={vehicles} onAdd={handleAddVehicle} onDelete={handleDeleteVehicle} />}
                     </main>
 
                     <footer className="bg-slate-900 text-slate-500 py-6 text-center text-[10px] uppercase font-bold tracking-widest border-t border-slate-800">
-                        Archivio Mezzi Speciali &copy; 2025 - Storage Cloud Attivo
+                        Mezzi Speciali - Database Cloud Attivo
                     </footer>
                 </div>
             );
         };
 
-        const Button = ({ children, onClick, variant = 'primary', className = '', disabled = false }) => {
-            const styles = {
-                primary: "bg-orange-600 text-white hover:bg-orange-700 shadow-lg shadow-orange-500/20",
-                secondary: "bg-slate-800 text-slate-300 hover:bg-slate-700",
-                danger: "bg-red-500 text-white hover:bg-red-600"
-            };
-            return (
-                <button disabled={disabled} onClick={onClick} className={`px-5 py-2.5 rounded-xl font-bold transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 ${styles[variant]} ${className}`}>
-                    {children}
-                </button>
-            );
-        };
-
         const PublicGallery = ({ vehicles }) => {
             const [selected, setSelected] = useState(null);
-            const [searchTerm, setSearchTerm] = useState('');
+            const [search, setSearch] = useState('');
 
-            const filtered = useMemo(() => vehicles.filter(v => 
-                v.plate?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                v.description?.toLowerCase().includes(searchTerm.toLowerCase())
-            ).sort((a,b) => b.createdAt - a.createdAt), [vehicles, searchTerm]);
+            const filtered = vehicles.filter(v => 
+                v.plate?.toLowerCase().includes(search.toLowerCase()) || 
+                v.description?.toLowerCase().includes(search.toLowerCase())
+            ).sort((a,b) => b.createdAt - a.createdAt);
 
             return (
                 <div className="space-y-8">
                     <div className="flex flex-col md:flex-row justify-between items-center gap-6">
-                        <h2 className="text-3xl font-black text-slate-800 uppercase italic">Vetrina Espositiva</h2>
-                        <div className="relative w-full md:w-96">
+                        <h2 className="text-3xl font-black text-slate-800 uppercase italic">Vetrina</h2>
+                        <div className="relative w-full md:w-80">
                             <i className="fa-solid fa-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
                             <input 
-                                type="text" placeholder="Cerca per targa o modello..." 
-                                className="w-full pl-12 pr-4 py-4 bg-white border-2 border-transparent rounded-2xl outline-none focus:border-orange-500 shadow-md transition-all"
-                                value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
+                                type="text" placeholder="Cerca targa o modello..." 
+                                className="w-full pl-12 pr-4 py-3 bg-white border-2 border-transparent rounded-2xl outline-none focus:border-orange-500 shadow-sm transition-all"
+                                value={search} onChange={e => setSearch(e.target.value)}
                             />
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                        {filtered.length > 0 ? filtered.map(v => (
-                            <div key={v.id} onClick={() => setSelected(v)} className="bg-white rounded-[2.5rem] overflow-hidden shadow-sm hover:shadow-2xl transition-all cursor-pointer border border-slate-100 card-zoom flex flex-col group">
-                                <div className="aspect-[4/3] bg-slate-100 overflow-hidden relative">
-                                    {v.imageUrl ? <img src={v.imageUrl} className="w-full h-full object-cover transition-transform duration-700" /> : <div className="w-full h-full flex items-center justify-center text-slate-300"><i className="fa-solid fa-image text-5xl"></i></div>}
-                                    <div className="absolute top-4 left-4 bg-slate-900/90 text-white px-3 py-1 rounded-full font-mono text-[10px] font-bold">{v.adCode}</div>
-                                    <div className="absolute bottom-4 right-4 bg-orange-600 text-white px-3 py-1 rounded-lg font-mono font-bold text-xs uppercase shadow-lg">{v.plate}</div>
-                                </div>
-                                <div className="p-8 flex-grow flex flex-col">
-                                    <h3 className="font-bold text-slate-800 text-xl mb-4 uppercase line-clamp-2 h-14 group-hover:text-orange-600 transition-colors">{v.description}</h3>
-                                    <div className="flex justify-between items-center mt-auto border-t border-slate-50 pt-4">
-                                        <span className="text-3xl font-black text-slate-900">€ {Number(v.price).toLocaleString('it-IT')}</span>
-                                        <div className="w-10 h-10 rounded-full bg-orange-50 flex items-center justify-center text-orange-500 group-hover:bg-orange-500 group-hover:text-white transition-all">
-                                            <i className="fa-solid fa-chevron-right"></i>
+                    {filtered.length === 0 ? (
+                        <div className="text-center py-20 text-slate-400">
+                            <i className="fa-solid fa-box-open text-4xl mb-4"></i>
+                            <p className="font-bold uppercase text-xs">Nessun veicolo trovato nel database</p>
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                            {filtered.map(v => (
+                                <div key={v.id} onClick={() => setSelected(v)} className="bg-white rounded-[2.5rem] overflow-hidden shadow-sm hover:shadow-xl transition-all cursor-pointer border border-slate-100 card-zoom flex flex-col group">
+                                    <div className="aspect-[4/3] bg-slate-100 overflow-hidden relative">
+                                        <img src={v.imageUrl} className="w-full h-full object-cover transition-transform duration-500" />
+                                        <div className="absolute top-4 left-4 bg-slate-900/80 text-white px-3 py-1 rounded-full font-mono text-[9px] font-bold">{v.adCode}</div>
+                                        <div className="absolute bottom-4 right-4 bg-orange-600 text-white px-3 py-1 rounded-lg font-mono font-bold text-xs shadow-lg uppercase">{v.plate}</div>
+                                    </div>
+                                    <div className="p-6 flex-grow flex flex-col">
+                                        <h3 className="font-bold text-slate-800 text-lg mb-4 uppercase line-clamp-2 h-12">{v.description}</h3>
+                                        <div className="flex justify-between items-center mt-auto border-t pt-4">
+                                            <span className="text-2xl font-black text-slate-900">€ {Number(v.price).toLocaleString('it-IT')}</span>
+                                            <div className="w-8 h-8 rounded-full bg-orange-50 flex items-center justify-center text-orange-500 group-hover:bg-orange-500 group-hover:text-white transition-all">
+                                                <i className="fa-solid fa-chevron-right text-xs"></i>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
-                            </div>
-                        )) : (
-                            <div className="col-span-full py-32 text-center text-slate-400 font-bold uppercase bg-white rounded-[3rem] border-2 border-dashed border-slate-200">
-                                <i className="fa-solid fa-box-open text-5xl mb-4 text-slate-200"></i>
-                                <p>{searchTerm ? "Nessun risultato per questa ricerca" : "Nessun veicolo in archivio"}</p>
-                            </div>
-                        )}
-                    </div>
+                            ))}
+                        </div>
+                    )}
 
                     {selected && (
-                        <div className="fixed inset-0 z-[100] modal-overlay flex items-center justify-center p-4 overflow-y-auto" onClick={() => setSelected(null)}>
-                            <div className="bg-white rounded-[3rem] max-w-2xl w-full p-8 relative shadow-2xl my-auto" onClick={e => e.stopPropagation()}>
-                                <button onClick={() => setSelected(null)} className="absolute top-6 right-6 text-slate-300 hover:text-orange-500 transition-colors"><i className="fa-solid fa-times-circle text-4xl"></i></button>
-                                <div className="aspect-video rounded-[2rem] overflow-hidden mb-6 bg-slate-100 shadow-inner">
-                                    {selected.imageUrl && <img src={selected.imageUrl} className="w-full h-full object-cover" />}
-                                </div>
-                                <h2 className="text-3xl font-black text-slate-800 uppercase mb-2 leading-tight">{selected.description}</h2>
-                                <div className="flex gap-3 mb-8">
-                                    <span className="bg-slate-900 text-white px-4 py-1 rounded-lg font-mono font-bold uppercase">{selected.plate}</span>
-                                    <span className="bg-orange-100 text-orange-700 px-4 py-1 rounded-lg font-mono font-bold text-xs flex items-center tracking-tighter">{selected.adCode}</span>
-                                </div>
-                                <div className="bg-slate-50 p-8 rounded-3xl flex flex-col md:flex-row justify-between items-center gap-4">
-                                    <div className="text-5xl font-black text-slate-900 italic">€ {Number(selected.price).toLocaleString('it-IT')}</div>
-                                    <Button onClick={() => window.location.href=`mailto:info@specialvehicles.com?subject=Richiesta informazioni per ${selected.adCode}`} className="w-full md:w-auto px-10 py-4">Richiedi Info</Button>
+                        <div className="fixed inset-0 z-[100] modal-overlay flex items-center justify-center p-4" onClick={() => setSelected(null)}>
+                            <div className="bg-white rounded-[3rem] max-w-xl w-full p-8 relative shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+                                <button onClick={() => setSelected(null)} className="absolute top-6 right-6 text-slate-300 hover:text-orange-500 transition-colors"><i className="fa-solid fa-times-circle text-3xl"></i></button>
+                                <img src={selected.imageUrl} className="w-full aspect-video object-cover rounded-[2rem] mb-6 shadow-inner" />
+                                <h2 className="text-2xl font-black text-slate-800 uppercase mb-4">{selected.description}</h2>
+                                <div className="bg-slate-50 p-6 rounded-3xl flex justify-between items-center">
+                                    <div className="text-4xl font-black text-slate-900">€ {Number(selected.price).toLocaleString('it-IT')}</div>
+                                    <a href={`mailto:info@specialvehicles.com?subject=Interesse per ${selected.adCode}`} className="bg-orange-600 text-white px-6 py-3 rounded-xl font-bold uppercase text-xs shadow-lg">Contatta Staff</a>
                                 </div>
                             </div>
                         </div>
@@ -322,26 +297,15 @@
         const AdminLogin = ({ onLogin }) => {
             const [u, setU] = useState('');
             const [p, setP] = useState('');
-            const [error, setError] = useState(false);
-
-            const handleTryLogin = () => {
-                const success = onLogin(u, p);
-                if (!success) setError(true);
-            };
-
             return (
                 <div className="flex justify-center py-20">
-                    <div className="bg-white p-10 rounded-[3rem] shadow-2xl w-full max-w-md border-b-8 border-orange-500">
-                        <div className="text-center mb-8">
-                            <div className="w-20 h-20 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                                <i className="fa-solid fa-user-shield text-3xl"></i>
-                            </div>
-                            <h2 className="text-2xl font-black uppercase tracking-tighter">Accesso Staff</h2>
+                    <div className="bg-white p-10 rounded-[3rem] shadow-xl w-full max-w-md border-b-4 border-orange-500">
+                        <h2 className="text-xl font-black text-center mb-8 uppercase italic">Area Riservata</h2>
+                        <div className="space-y-4">
+                            <input type="text" placeholder="Username" className="w-full p-4 bg-slate-50 rounded-2xl outline-none border-2 border-transparent focus:border-orange-500 font-bold uppercase" value={u} onChange={e => setU(e.target.value)} />
+                            <input type="password" placeholder="Password" className="w-full p-4 bg-slate-50 rounded-2xl outline-none border-2 border-transparent focus:border-orange-500" value={p} onChange={e => setP(e.target.value)} />
+                            <button onClick={() => onLogin(u,p)} className="w-full py-4 bg-orange-600 text-white rounded-2xl font-bold uppercase shadow-lg hover:bg-orange-700 transition-all">Accedi al Cloud</button>
                         </div>
-                        {error && <p className="bg-red-50 text-red-600 text-xs font-bold p-3 rounded-lg mb-4 text-center uppercase">Credenziali Errate</p>}
-                        <input type="text" placeholder="Nome Utente" className="w-full p-4 bg-slate-50 rounded-2xl mb-4 outline-none border-2 border-transparent focus:border-orange-500 transition-all uppercase font-bold" value={u} onChange={e => {setU(e.target.value); setError(false);}} />
-                        <input type="password" placeholder="Password" className="w-full p-4 bg-slate-50 rounded-2xl mb-6 outline-none border-2 border-transparent focus:border-orange-500 transition-all font-bold" value={p} onChange={e => {setP(e.target.value); setError(false);}} />
-                        <Button variant="primary" className="w-full py-4 uppercase tracking-widest" onClick={handleTryLogin}>Entra nel Cloud</Button>
                     </div>
                 </div>
             );
@@ -360,11 +324,11 @@
                     img.onload = () => {
                         const canvas = document.createElement('canvas');
                         let w = img.width, h = img.height;
-                        if (w > 1200) { h *= 1200/w; w = 1200; }
+                        if (w > 1000) { h *= 1000/w; w = 1000; }
                         canvas.width = w; canvas.height = h;
                         const ctx = canvas.getContext('2d');
                         ctx.drawImage(img, 0, 0, w, h);
-                        setForm({...form, imageUrl: canvas.toDataURL('image/jpeg', 0.7)});
+                        setForm({...form, imageUrl: canvas.toDataURL('image/jpeg', 0.6)});
                     };
                     img.src = ev.target.result;
                 };
@@ -373,82 +337,75 @@
 
             const submit = async () => {
                 if (!form.plate || !form.description || !form.price || !form.imageUrl) {
-                    alert("Compila tutti i campi, inclusa la foto del mezzo.");
+                    alert("Tutti i campi sono obbligatori!");
                     return;
                 }
                 setIsSaving(true);
                 try {
                     await onAdd(form);
                     setForm({ plate: '', description: '', price: '', imageUrl: '' });
+                    alert("Veicolo salvato correttamente!");
                 } catch(e) { 
-                    alert("Errore critico di salvataggio. Ricarica la pagina."); 
+                    alert(e.message); 
+                } finally {
+                    setIsSaving(false);
                 }
-                setIsSaving(false);
             };
 
             return (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
-                    <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-slate-100 h-fit sticky top-28">
-                        <h3 className="text-xl font-black mb-6 uppercase italic flex items-center gap-2">
-                            <i className="fa-solid fa-plus-circle text-orange-500"></i> Aggiungi Mezzo
-                        </h3>
+                    <div className="bg-white p-8 rounded-[3rem] shadow-lg border border-slate-100 h-fit">
+                        <h3 className="font-black mb-6 uppercase text-sm italic">Nuovo Inserimento</h3>
                         <div className="space-y-4">
-                            <label className="block border-2 border-dashed border-slate-200 rounded-2xl p-4 text-center cursor-pointer hover:border-orange-500 transition-all overflow-hidden aspect-video relative group">
-                                {form.imageUrl ? <img src={form.imageUrl} className="w-full h-full object-cover rounded-xl" /> : <div className="flex flex-col items-center justify-center h-full text-slate-400"><i className="fa-solid fa-camera text-2xl mb-2 group-hover:scale-110 transition-transform"></i><span className="text-xs font-bold uppercase">Carica Foto Mezzo</span></div>}
+                            <label className="block border-2 border-dashed border-slate-200 rounded-2xl p-4 text-center cursor-pointer hover:border-orange-500 overflow-hidden aspect-video relative group">
+                                {form.imageUrl ? <img src={form.imageUrl} className="w-full h-full object-cover rounded-xl" /> : <div className="flex flex-col items-center justify-center h-full text-slate-400"><i className="fa-solid fa-camera text-2xl mb-2 group-hover:scale-110 transition-transform"></i><span className="text-[10px] font-bold uppercase">Carica Foto</span></div>}
                                 <input type="file" accept="image/*" className="hidden" onChange={handleFile} />
                             </label>
-                            <input placeholder="TARGA (es. AA 123 BB)" className="w-full p-4 bg-slate-50 rounded-xl outline-none font-bold uppercase focus:ring-2 ring-orange-200 border border-slate-100" value={form.plate} onChange={e => setForm({...form, plate: e.target.value})} />
-                            <input placeholder="DESCRIZIONE MODELLO" className="w-full p-4 bg-slate-50 rounded-xl outline-none font-bold focus:ring-2 ring-orange-200 border border-slate-100" value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
-                            <div className="relative">
-                                <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-400">€</span>
-                                <input type="number" placeholder="PREZZO" className="w-full p-4 pl-8 bg-slate-50 rounded-xl outline-none font-black text-orange-600 focus:ring-2 ring-orange-200 border border-slate-100" value={form.price} onChange={e => setForm({...form, price: e.target.value})} />
-                            </div>
-                            <Button className="w-full py-5 mt-4 uppercase text-sm tracking-widest" onClick={submit} disabled={isSaving}>
-                                {isSaving ? <><i className="fa-solid fa-circle-notch fa-spin"></i> Salvataggio...</> : "Pubblica nel Cloud"}
-                            </Button>
+                            <input placeholder="TARGA (es. AB123CD)" className="w-full p-4 bg-slate-50 rounded-xl outline-none font-bold uppercase border border-slate-100 focus:bg-white transition-all" value={form.plate} onChange={e => setForm({...form, plate: e.target.value})} />
+                            <input placeholder="MODELLO E ALLESTIMENTO" className="w-full p-4 bg-slate-50 rounded-xl outline-none font-bold border border-slate-100 focus:bg-white transition-all" value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
+                            <input type="number" placeholder="PREZZO DI VENDITA €" className="w-full p-4 bg-slate-50 rounded-xl outline-none font-black text-orange-600 border border-slate-100 focus:bg-white transition-all" value={form.price} onChange={e => setForm({...form, price: e.target.value})} />
+                            <button onClick={submit} disabled={isSaving} className="w-full py-4 bg-orange-600 text-white rounded-2xl font-bold uppercase shadow-lg disabled:opacity-50 hover:bg-orange-700 transition-all flex items-center justify-center gap-2">
+                                {isSaving ? <><i className="fa-solid fa-circle-notch fa-spin"></i> INVIO...</> : <><i className="fa-solid fa-cloud-arrow-up"></i> SALVA NEL CLOUD</>}
+                            </button>
                         </div>
                     </div>
 
-                    <div className="lg:col-span-2 bg-white rounded-[3rem] shadow-xl overflow-hidden border border-slate-100">
+                    <div className="lg:col-span-2 bg-white rounded-[3rem] shadow-lg overflow-hidden border border-slate-100">
                         <div className="bg-slate-900 p-6 text-white flex justify-between items-center">
-                            <h3 className="font-bold uppercase tracking-widest text-xs italic">Gestione Flotta Live</h3>
-                            <span className="bg-orange-500 text-[10px] px-4 py-1.5 rounded-full font-black uppercase shadow-lg">{vehicles.length} Veicoli Totali</span>
+                            <h3 className="font-bold uppercase text-xs italic tracking-widest">Gestione Inventario</h3>
+                            <span className="bg-orange-500 text-[10px] px-3 py-1 rounded-full font-black uppercase tracking-tighter">{vehicles.length} Mezzi Disponibili</span>
                         </div>
                         <div className="overflow-x-auto">
                             <table className="w-full">
-                                <thead className="bg-slate-50 text-slate-400 text-[10px] uppercase font-black">
+                                <thead className="bg-slate-50 text-slate-400 text-[9px] uppercase font-black">
                                     <tr>
-                                        <th className="p-6 text-left">Mezzo</th>
-                                        <th className="p-6 text-left">Identificativi</th>
+                                        <th className="p-6 text-left">Veicolo</th>
+                                        <th className="p-6 text-left">Targa</th>
                                         <th className="p-6 text-right">Azioni</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
-                                    {vehicles.length > 0 ? vehicles.sort((a,b) => b.createdAt - a.createdAt).map(v => (
-                                        <tr key={v.id} className="hover:bg-orange-50/30 transition-colors">
-                                            <td className="p-6">
-                                                <div className="flex items-center gap-4">
-                                                    <img src={v.imageUrl} className="w-20 h-14 object-cover rounded-lg shadow-sm bg-slate-100 border border-white" />
-                                                    <div>
-                                                        <div className="font-bold text-slate-800 uppercase text-sm leading-tight mb-1">{v.description}</div>
-                                                        <div className="text-orange-600 font-black italic">€ {Number(v.price).toLocaleString('it-IT')}</div>
+                                    {vehicles.length === 0 ? (
+                                        <tr><td colSpan="3" className="p-10 text-center text-slate-300 italic uppercase text-xs">Nessun dato registrato</td></tr>
+                                    ) : (
+                                        vehicles.map(v => (
+                                            <tr key={v.id} className="hover:bg-slate-50 transition-colors">
+                                                <td className="p-4">
+                                                    <div className="flex items-center gap-4">
+                                                        <div className="w-16 h-10 rounded overflow-hidden shadow-sm border border-slate-100">
+                                                            <img src={v.imageUrl} className="w-full h-full object-cover" />
+                                                        </div>
+                                                        <div className="font-bold text-slate-800 uppercase text-xs truncate max-w-[200px]">{v.description}</div>
                                                     </div>
-                                                </div>
-                                            </td>
-                                            <td className="p-6 text-xs font-mono">
-                                                <div className="text-slate-400 text-[9px] mb-1">{v.adCode}</div>
-                                                <div className="font-bold uppercase text-slate-900 bg-slate-100 px-2 py-0.5 rounded inline-block">{v.plate}</div>
-                                            </td>
-                                            <td className="p-6 text-right">
-                                                <button onClick={() => confirm(`Vuoi davvero eliminare il mezzo ${v.plate}?`) && onDelete(v.id)} className="text-slate-300 hover:text-red-600 p-2 transition-colors">
-                                                    <i className="fa-solid fa-trash-can text-lg"></i>
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    )) : (
-                                        <tr>
-                                            <td colSpan="3" className="p-20 text-center text-slate-300 uppercase font-bold text-xs">Nessun mezzo caricato</td>
-                                        </tr>
+                                                </td>
+                                                <td className="p-4 text-xs font-mono font-bold uppercase text-slate-500">{v.plate}</td>
+                                                <td className="p-4 text-right">
+                                                    <button onClick={() => confirm("Sei sicuro di voler eliminare definitivamente questo mezzo?") && onDelete(v.id)} className="w-10 h-10 rounded-full hover:bg-red-50 text-slate-300 hover:text-red-600 transition-all">
+                                                        <i className="fa-solid fa-trash-can"></i>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))
                                     )}
                                 </tbody>
                             </table>
