@@ -35,12 +35,12 @@
     <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
-        import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy, enableIndexedDbPersistence } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
 
         window.FirebaseLib = { 
             initializeApp, getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy,
-            getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken
+            getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken, enableIndexedDbPersistence
         };
         
         window.dispatchEvent(new Event('firebase-ready'));
@@ -49,6 +49,7 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
 
+        // Configurazione Firebase univoca per questo progetto
         const FALLBACK_CONFIG = {
             apiKey: "AIzaSyC0ge7t486bOmNHiQcDWdtr3IbxlCGzAWM",
             authDomain: "mezzi-2.firebaseapp.com",
@@ -87,7 +88,8 @@
                 return FALLBACK_CONFIG;
             };
 
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'mezzi-fleet-global-v2';
+            // ID applicazione costante per sincronizzazione multi-dispositivo
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'mezzi-fleet-final-2025';
 
             useEffect(() => {
                 if (window.FirebaseLib) setFbReady(true);
@@ -112,7 +114,7 @@
                             await signInAnonymously(authRef.current);
                         }
                     } catch (err) { 
-                        setErrorMsg("Errore connessione Cloud. Ricarica la pagina."); 
+                        setErrorMsg("Errore di connessione al Cloud. Verifica la tua connessione internet."); 
                     }
                 };
                 initAuth();
@@ -120,17 +122,17 @@
                 const unsubscribeAuth = onAuthStateChanged(authRef.current, (u) => {
                     if (u) {
                         setUser(u);
-                        // Inizio sincronizzazione dati solo dopo Auth certa
                         const { collection, query, onSnapshot } = window.FirebaseLib;
-                        const colRef = collection(dbRef.current, 'artifacts', appId, 'public', 'data', 'vehicles');
+                        const colPath = `artifacts/${appId}/public/data/vehicles`;
+                        const colRef = collection(dbRef.current, colPath);
                         
                         const unsubscribeData = onSnapshot(query(colRef), (snapshot) => {
                             const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
                             setVehicles(data);
                             setLoading(false);
                         }, (err) => { 
-                            console.error("Firestore Error:", err);
-                            setErrorMsg("Dati non disponibili. Controlla la connessione.");
+                            console.error("Firestore Sync Error:", err);
+                            setErrorMsg("Impossibile sincronizzare i dati. Permessi negati o database offline.");
                             setLoading(false);
                         });
                         return () => unsubscribeData();
@@ -149,7 +151,10 @@
             };
 
             const addVehicle = async (data) => {
-                if (!user || !dbRef.current) return alert("Sessione scaduta. Ricarica.");
+                if (!user || !dbRef.current) {
+                    alert("Errore: Sessione non valida. Ricarica la pagina.");
+                    return;
+                }
                 
                 try {
                     const { collection, addDoc } = window.FirebaseLib;
@@ -159,9 +164,11 @@
                         createdAt: Date.now(),
                         userId: user.uid
                     };
-                    await addDoc(collection(dbRef.current, 'artifacts', appId, 'public', 'data', 'vehicles'), finalData);
+                    const colPath = `artifacts/${appId}/public/data/vehicles`;
+                    await addDoc(collection(dbRef.current, colPath), finalData);
                 } catch (err) {
-                    throw new Error("Salvataggio fallito.");
+                    console.error("Add Error:", err);
+                    throw new Error("Salvataggio fallito sul Cloud.");
                 }
             };
 
@@ -169,15 +176,18 @@
                 if (!user || !dbRef.current) return;
                 try {
                     const { doc, deleteDoc } = window.FirebaseLib;
-                    await deleteDoc(doc(dbRef.current, 'artifacts', appId, 'public', 'data', 'vehicles', id));
-                } catch (err) {}
+                    const docPath = `artifacts/${appId}/public/data/vehicles/${id}`;
+                    await deleteDoc(doc(dbRef.current, docPath));
+                } catch (err) {
+                    alert("Errore durante l'eliminazione.");
+                }
             };
 
             if (loading && !errorMsg) return (
                 <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white">
                     <div className="text-center">
-                        <i className="fa-solid fa-cloud-bolt fa-beat text-4xl text-orange-500 mb-4"></i>
-                        <p className="tracking-widest uppercase text-xs font-bold">Accesso Cloud in corso...</p>
+                        <i className="fa-solid fa-cloud-arrow-down fa-beat text-4xl text-orange-500 mb-4"></i>
+                        <p className="tracking-widest uppercase text-xs font-bold">Sincronizzazione Cloud...</p>
                     </div>
                 </div>
             );
@@ -190,20 +200,26 @@
                                 <i className="fa-solid fa-truck-pickup text-2xl text-orange-500"></i>
                                 <div>
                                     <h1 className="text-xl font-bold leading-none">SpecialVehicles</h1>
-                                    <p className="text-[10px] text-green-500 font-bold uppercase tracking-widest mt-1">● Database Sincronizzato</p>
+                                    <p className="text-[10px] text-green-500 font-bold uppercase tracking-widest mt-1">● Live Database</p>
                                 </div>
                             </div>
                             <Button variant="secondary" onClick={() => setView(view === 'home' ? 'admin' : 'home')} className="!rounded-full text-xs">
-                                {view === 'home' ? <><i className="fa-solid fa-lock"></i> Area Staff</> : <><i className="fa-solid fa-house"></i> Home</>}
+                                {view === 'home' ? <><i className="fa-solid fa-lock"></i> Pannello Staff</> : <><i className="fa-solid fa-house"></i> Vai alla Home</>}
                             </Button>
                         </div>
                     </header>
 
                     <main className="flex-grow max-w-7xl mx-auto px-4 py-8 w-full fade-in">
                         {errorMsg && (
-                            <div className="bg-red-50 border-l-4 border-red-500 text-red-800 p-6 mb-8 rounded-r-2xl">
-                                <p className="font-bold">{errorMsg}</p>
-                                <button onClick={() => window.location.reload()} className="mt-2 text-xs underline uppercase">Riprova connessione</button>
+                            <div className="bg-red-100 border-l-4 border-red-500 text-red-900 p-6 mb-8 rounded-r-2xl shadow-lg">
+                                <div className="flex items-center gap-3">
+                                    <i className="fa-solid fa-triangle-exclamation text-2xl"></i>
+                                    <div>
+                                        <p className="font-bold">Attenzione!</p>
+                                        <p className="text-sm">{errorMsg}</p>
+                                    </div>
+                                </div>
+                                <button onClick={() => window.location.reload()} className="mt-4 text-xs font-black uppercase bg-red-500 text-white px-4 py-2 rounded-lg">Riconnetti Ora</button>
                             </div>
                         )}
                         {view === 'home' && <PublicGallery vehicles={vehicles} />}
@@ -211,8 +227,8 @@
                         {view === 'admin' && isAdmin && <AdminDashboard vehicles={vehicles} onAdd={addVehicle} onDelete={deleteVehicle} />}
                     </main>
 
-                    <footer className="bg-slate-900 text-slate-500 py-6 text-center text-[10px] uppercase font-bold tracking-widest">
-                        Mezzi-2 Cloud Archive &copy; 2025 - Sincronizzazione Attiva
+                    <footer className="bg-slate-900 text-slate-500 py-6 text-center text-[10px] uppercase font-bold tracking-widest border-t border-slate-800">
+                        Archivio Mezzi Speciali &copy; 2025 - Storage Cloud Attivo
                     </footer>
                 </div>
             );
@@ -243,57 +259,58 @@
             return (
                 <div className="space-y-8">
                     <div className="flex flex-col md:flex-row justify-between items-center gap-6">
-                        <h2 className="text-3xl font-black text-slate-800 uppercase italic">Flotta Disponibile</h2>
+                        <h2 className="text-3xl font-black text-slate-800 uppercase italic">Vetrina Espositiva</h2>
                         <div className="relative w-full md:w-96">
                             <i className="fa-solid fa-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
                             <input 
-                                type="text" placeholder="Cerca targa o modello..." 
-                                className="w-full pl-12 pr-4 py-4 bg-white border-2 border-transparent rounded-2xl outline-none focus:border-orange-500 shadow-sm"
+                                type="text" placeholder="Cerca per targa o modello..." 
+                                className="w-full pl-12 pr-4 py-4 bg-white border-2 border-transparent rounded-2xl outline-none focus:border-orange-500 shadow-md transition-all"
                                 value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
                             />
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                         {filtered.length > 0 ? filtered.map(v => (
-                            <div key={v.id} onClick={() => setSelected(v)} className="bg-white rounded-[2.5rem] overflow-hidden shadow-sm hover:shadow-2xl transition-all cursor-pointer border border-slate-100 card-zoom flex flex-col">
+                            <div key={v.id} onClick={() => setSelected(v)} className="bg-white rounded-[2.5rem] overflow-hidden shadow-sm hover:shadow-2xl transition-all cursor-pointer border border-slate-100 card-zoom flex flex-col group">
                                 <div className="aspect-[4/3] bg-slate-100 overflow-hidden relative">
                                     {v.imageUrl ? <img src={v.imageUrl} className="w-full h-full object-cover transition-transform duration-700" /> : <div className="w-full h-full flex items-center justify-center text-slate-300"><i className="fa-solid fa-image text-5xl"></i></div>}
                                     <div className="absolute top-4 left-4 bg-slate-900/90 text-white px-3 py-1 rounded-full font-mono text-[10px] font-bold">{v.adCode}</div>
-                                    <div className="absolute bottom-4 right-4 bg-orange-600 text-white px-3 py-1 rounded-lg font-mono font-bold text-xs uppercase">{v.plate}</div>
+                                    <div className="absolute bottom-4 right-4 bg-orange-600 text-white px-3 py-1 rounded-lg font-mono font-bold text-xs uppercase shadow-lg">{v.plate}</div>
                                 </div>
                                 <div className="p-8 flex-grow flex flex-col">
-                                    <h3 className="font-bold text-slate-800 text-xl mb-4 uppercase line-clamp-2 h-14">{v.description}</h3>
-                                    <div className="flex justify-between items-center mt-auto">
+                                    <h3 className="font-bold text-slate-800 text-xl mb-4 uppercase line-clamp-2 h-14 group-hover:text-orange-600 transition-colors">{v.description}</h3>
+                                    <div className="flex justify-between items-center mt-auto border-t border-slate-50 pt-4">
                                         <span className="text-3xl font-black text-slate-900">€ {Number(v.price).toLocaleString('it-IT')}</span>
-                                        <div className="w-10 h-10 rounded-full bg-orange-50 flex items-center justify-center text-orange-500">
+                                        <div className="w-10 h-10 rounded-full bg-orange-50 flex items-center justify-center text-orange-500 group-hover:bg-orange-500 group-hover:text-white transition-all">
                                             <i className="fa-solid fa-chevron-right"></i>
                                         </div>
                                     </div>
                                 </div>
                             </div>
                         )) : (
-                            <div className="col-span-full py-20 text-center text-slate-400 font-bold uppercase bg-white rounded-[3rem] border-2 border-dashed border-slate-200">
-                                {searchTerm ? "Nessun mezzo trovato" : "Archivio vuoto"}
+                            <div className="col-span-full py-32 text-center text-slate-400 font-bold uppercase bg-white rounded-[3rem] border-2 border-dashed border-slate-200">
+                                <i className="fa-solid fa-box-open text-5xl mb-4 text-slate-200"></i>
+                                <p>{searchTerm ? "Nessun risultato per questa ricerca" : "Nessun veicolo in archivio"}</p>
                             </div>
                         )}
                     </div>
 
                     {selected && (
-                        <div className="fixed inset-0 z-[100] modal-overlay flex items-center justify-center p-4" onClick={() => setSelected(null)}>
-                            <div className="bg-white rounded-[3rem] max-w-2xl w-full p-8 relative shadow-2xl" onClick={e => e.stopPropagation()}>
-                                <button onClick={() => setSelected(null)} className="absolute top-6 right-6 text-slate-300 hover:text-orange-500"><i className="fa-solid fa-times-circle text-4xl"></i></button>
-                                <div className="aspect-video rounded-[2rem] overflow-hidden mb-6 bg-slate-100">
+                        <div className="fixed inset-0 z-[100] modal-overlay flex items-center justify-center p-4 overflow-y-auto" onClick={() => setSelected(null)}>
+                            <div className="bg-white rounded-[3rem] max-w-2xl w-full p-8 relative shadow-2xl my-auto" onClick={e => e.stopPropagation()}>
+                                <button onClick={() => setSelected(null)} className="absolute top-6 right-6 text-slate-300 hover:text-orange-500 transition-colors"><i className="fa-solid fa-times-circle text-4xl"></i></button>
+                                <div className="aspect-video rounded-[2rem] overflow-hidden mb-6 bg-slate-100 shadow-inner">
                                     {selected.imageUrl && <img src={selected.imageUrl} className="w-full h-full object-cover" />}
                                 </div>
-                                <h2 className="text-3xl font-black text-slate-800 uppercase mb-2">{selected.description}</h2>
+                                <h2 className="text-3xl font-black text-slate-800 uppercase mb-2 leading-tight">{selected.description}</h2>
                                 <div className="flex gap-3 mb-8">
                                     <span className="bg-slate-900 text-white px-4 py-1 rounded-lg font-mono font-bold uppercase">{selected.plate}</span>
-                                    <span className="bg-orange-100 text-orange-700 px-4 py-1 rounded-lg font-mono font-bold text-xs flex items-center">{selected.adCode}</span>
+                                    <span className="bg-orange-100 text-orange-700 px-4 py-1 rounded-lg font-mono font-bold text-xs flex items-center tracking-tighter">{selected.adCode}</span>
                                 </div>
-                                <div className="bg-slate-50 p-6 rounded-3xl flex justify-between items-center">
-                                    <div className="text-4xl font-black text-slate-900 italic">€ {Number(selected.price).toLocaleString('it-IT')}</div>
-                                    <Button onClick={() => window.location.href=`mailto:info@specialvehicles.com?subject=Interesse per ${selected.adCode}`}>Contatta</Button>
+                                <div className="bg-slate-50 p-8 rounded-3xl flex flex-col md:flex-row justify-between items-center gap-4">
+                                    <div className="text-5xl font-black text-slate-900 italic">€ {Number(selected.price).toLocaleString('it-IT')}</div>
+                                    <Button onClick={() => window.location.href=`mailto:info@specialvehicles.com?subject=Richiesta informazioni per ${selected.adCode}`} className="w-full md:w-auto px-10 py-4">Richiedi Info</Button>
                                 </div>
                             </div>
                         </div>
@@ -305,13 +322,26 @@
         const AdminLogin = ({ onLogin }) => {
             const [u, setU] = useState('');
             const [p, setP] = useState('');
+            const [error, setError] = useState(false);
+
+            const handleTryLogin = () => {
+                const success = onLogin(u, p);
+                if (!success) setError(true);
+            };
+
             return (
                 <div className="flex justify-center py-20">
                     <div className="bg-white p-10 rounded-[3rem] shadow-2xl w-full max-w-md border-b-8 border-orange-500">
-                        <h2 className="text-2xl font-black mb-8 text-center uppercase tracking-tighter">Login Gestionale</h2>
-                        <input type="text" placeholder="Utente" className="w-full p-4 bg-slate-50 rounded-2xl mb-4 outline-none border-2 border-transparent focus:border-orange-500 transition-all uppercase font-bold" value={u} onChange={e => setU(e.target.value)} />
-                        <input type="password" placeholder="Password" className="w-full p-4 bg-slate-50 rounded-2xl mb-6 outline-none border-2 border-transparent focus:border-orange-500 transition-all font-bold" value={p} onChange={e => setP(e.target.value)} />
-                        <Button variant="primary" className="w-full py-4 uppercase" onClick={() => onLogin(u, p)}>Accedi</Button>
+                        <div className="text-center mb-8">
+                            <div className="w-20 h-20 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <i className="fa-solid fa-user-shield text-3xl"></i>
+                            </div>
+                            <h2 className="text-2xl font-black uppercase tracking-tighter">Accesso Staff</h2>
+                        </div>
+                        {error && <p className="bg-red-50 text-red-600 text-xs font-bold p-3 rounded-lg mb-4 text-center uppercase">Credenziali Errate</p>}
+                        <input type="text" placeholder="Nome Utente" className="w-full p-4 bg-slate-50 rounded-2xl mb-4 outline-none border-2 border-transparent focus:border-orange-500 transition-all uppercase font-bold" value={u} onChange={e => {setU(e.target.value); setError(false);}} />
+                        <input type="password" placeholder="Password" className="w-full p-4 bg-slate-50 rounded-2xl mb-6 outline-none border-2 border-transparent focus:border-orange-500 transition-all font-bold" value={p} onChange={e => {setP(e.target.value); setError(false);}} />
+                        <Button variant="primary" className="w-full py-4 uppercase tracking-widest" onClick={handleTryLogin}>Entra nel Cloud</Button>
                     </div>
                 </div>
             );
@@ -330,10 +360,11 @@
                     img.onload = () => {
                         const canvas = document.createElement('canvas');
                         let w = img.width, h = img.height;
-                        if (w > 1000) { h *= 1000/w; w = 1000; }
+                        if (w > 1200) { h *= 1200/w; w = 1200; }
                         canvas.width = w; canvas.height = h;
-                        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-                        setForm({...form, imageUrl: canvas.toDataURL('image/jpeg', 0.6)});
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, w, h);
+                        setForm({...form, imageUrl: canvas.toDataURL('image/jpeg', 0.7)});
                     };
                     img.src = ev.target.result;
                 };
@@ -341,61 +372,84 @@
             };
 
             const submit = async () => {
-                if (!form.plate || !form.description || !form.price || !form.imageUrl) return alert("Compila tutti i campi e carica la foto.");
+                if (!form.plate || !form.description || !form.price || !form.imageUrl) {
+                    alert("Compila tutti i campi, inclusa la foto del mezzo.");
+                    return;
+                }
                 setIsSaving(true);
                 try {
                     await onAdd(form);
                     setForm({ plate: '', description: '', price: '', imageUrl: '' });
-                } catch(e) { alert("Errore Cloud."); }
+                } catch(e) { 
+                    alert("Errore critico di salvataggio. Ricarica la pagina."); 
+                }
                 setIsSaving(false);
             };
 
             return (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
-                    <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-slate-100 h-fit">
-                        <h3 className="text-xl font-black mb-6 uppercase italic">Nuovo Inserimento</h3>
+                    <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-slate-100 h-fit sticky top-28">
+                        <h3 className="text-xl font-black mb-6 uppercase italic flex items-center gap-2">
+                            <i className="fa-solid fa-plus-circle text-orange-500"></i> Aggiungi Mezzo
+                        </h3>
                         <div className="space-y-4">
-                            <label className="block border-2 border-dashed border-slate-200 rounded-2xl p-4 text-center cursor-pointer hover:border-orange-500 transition-all overflow-hidden aspect-video relative">
-                                {form.imageUrl ? <img src={form.imageUrl} className="w-full h-full object-cover rounded-xl" /> : <div className="flex flex-col items-center justify-center h-full text-slate-400"><i className="fa-solid fa-camera text-2xl mb-2"></i><span className="text-xs font-bold uppercase">Carica Foto</span></div>}
+                            <label className="block border-2 border-dashed border-slate-200 rounded-2xl p-4 text-center cursor-pointer hover:border-orange-500 transition-all overflow-hidden aspect-video relative group">
+                                {form.imageUrl ? <img src={form.imageUrl} className="w-full h-full object-cover rounded-xl" /> : <div className="flex flex-col items-center justify-center h-full text-slate-400"><i className="fa-solid fa-camera text-2xl mb-2 group-hover:scale-110 transition-transform"></i><span className="text-xs font-bold uppercase">Carica Foto Mezzo</span></div>}
                                 <input type="file" accept="image/*" className="hidden" onChange={handleFile} />
                             </label>
-                            <input placeholder="TARGA" className="w-full p-4 bg-slate-50 rounded-xl outline-none font-bold uppercase focus:ring-2 ring-orange-200" value={form.plate} onChange={e => setForm({...form, plate: e.target.value})} />
-                            <input placeholder="MODELLO / DETTAGLI" className="w-full p-4 bg-slate-50 rounded-xl outline-none font-bold focus:ring-2 ring-orange-200" value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
-                            <input type="number" placeholder="PREZZO (€)" className="w-full p-4 bg-slate-50 rounded-xl outline-none font-black text-orange-600 focus:ring-2 ring-orange-200" value={form.price} onChange={e => setForm({...form, price: e.target.value})} />
-                            <Button className="w-full py-4 mt-4 uppercase" onClick={submit} disabled={isSaving}>
-                                {isSaving ? "Salvataggio..." : "Pubblica Online"}
+                            <input placeholder="TARGA (es. AA 123 BB)" className="w-full p-4 bg-slate-50 rounded-xl outline-none font-bold uppercase focus:ring-2 ring-orange-200 border border-slate-100" value={form.plate} onChange={e => setForm({...form, plate: e.target.value})} />
+                            <input placeholder="DESCRIZIONE MODELLO" className="w-full p-4 bg-slate-50 rounded-xl outline-none font-bold focus:ring-2 ring-orange-200 border border-slate-100" value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
+                            <div className="relative">
+                                <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-400">€</span>
+                                <input type="number" placeholder="PREZZO" className="w-full p-4 pl-8 bg-slate-50 rounded-xl outline-none font-black text-orange-600 focus:ring-2 ring-orange-200 border border-slate-100" value={form.price} onChange={e => setForm({...form, price: e.target.value})} />
+                            </div>
+                            <Button className="w-full py-5 mt-4 uppercase text-sm tracking-widest" onClick={submit} disabled={isSaving}>
+                                {isSaving ? <><i className="fa-solid fa-circle-notch fa-spin"></i> Salvataggio...</> : "Pubblica nel Cloud"}
                             </Button>
                         </div>
                     </div>
 
-                    <div className="lg:col-span-2 bg-white rounded-[3rem] shadow-xl overflow-hidden">
+                    <div className="lg:col-span-2 bg-white rounded-[3rem] shadow-xl overflow-hidden border border-slate-100">
                         <div className="bg-slate-900 p-6 text-white flex justify-between items-center">
-                            <h3 className="font-bold uppercase tracking-widest text-xs italic">Lista Mezzi Cloud</h3>
-                            <span className="bg-orange-500 text-[10px] px-3 py-1 rounded-full font-black uppercase">{vehicles.length} Totali</span>
+                            <h3 className="font-bold uppercase tracking-widest text-xs italic">Gestione Flotta Live</h3>
+                            <span className="bg-orange-500 text-[10px] px-4 py-1.5 rounded-full font-black uppercase shadow-lg">{vehicles.length} Veicoli Totali</span>
                         </div>
                         <div className="overflow-x-auto">
                             <table className="w-full">
+                                <thead className="bg-slate-50 text-slate-400 text-[10px] uppercase font-black">
+                                    <tr>
+                                        <th className="p-6 text-left">Mezzo</th>
+                                        <th className="p-6 text-left">Identificativi</th>
+                                        <th className="p-6 text-right">Azioni</th>
+                                    </tr>
+                                </thead>
                                 <tbody className="divide-y divide-slate-100">
-                                    {vehicles.sort((a,b) => b.createdAt - a.createdAt).map(v => (
-                                        <tr key={v.id} className="hover:bg-slate-50">
+                                    {vehicles.length > 0 ? vehicles.sort((a,b) => b.createdAt - a.createdAt).map(v => (
+                                        <tr key={v.id} className="hover:bg-orange-50/30 transition-colors">
                                             <td className="p-6">
                                                 <div className="flex items-center gap-4">
-                                                    <img src={v.imageUrl} className="w-16 h-12 object-cover rounded-lg shadow-sm bg-slate-100" />
+                                                    <img src={v.imageUrl} className="w-20 h-14 object-cover rounded-lg shadow-sm bg-slate-100 border border-white" />
                                                     <div>
-                                                        <div className="font-bold text-slate-800 uppercase text-sm leading-tight">{v.description}</div>
+                                                        <div className="font-bold text-slate-800 uppercase text-sm leading-tight mb-1">{v.description}</div>
                                                         <div className="text-orange-600 font-black italic">€ {Number(v.price).toLocaleString('it-IT')}</div>
                                                     </div>
                                                 </div>
                                             </td>
                                             <td className="p-6 text-xs font-mono">
-                                                <div className="text-slate-400">{v.adCode}</div>
-                                                <div className="font-bold uppercase text-slate-900">{v.plate}</div>
+                                                <div className="text-slate-400 text-[9px] mb-1">{v.adCode}</div>
+                                                <div className="font-bold uppercase text-slate-900 bg-slate-100 px-2 py-0.5 rounded inline-block">{v.plate}</div>
                                             </td>
                                             <td className="p-6 text-right">
-                                                <button onClick={() => confirm("Eliminare?") && onDelete(v.id)} className="text-red-400 hover:text-red-600 p-2"><i className="fa-solid fa-trash"></i></button>
+                                                <button onClick={() => confirm(`Vuoi davvero eliminare il mezzo ${v.plate}?`) && onDelete(v.id)} className="text-slate-300 hover:text-red-600 p-2 transition-colors">
+                                                    <i className="fa-solid fa-trash-can text-lg"></i>
+                                                </button>
                                             </td>
                                         </tr>
-                                    ))}
+                                    )) : (
+                                        <tr>
+                                            <td colSpan="3" className="p-20 text-center text-slate-300 uppercase font-bold text-xs">Nessun mezzo caricato</td>
+                                        </tr>
+                                    )}
                                 </tbody>
                             </table>
                         </div>
