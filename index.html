@@ -48,20 +48,18 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 
-        // Configurazione di sicurezza per evitare il crash fuori dal Canvas
-        const getSafeConfig = () => {
-            try {
-                return typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
-                    apiKey: "AIzaSy...", // Qui andrebbe la tua chiave se volessi renderlo autonomo
-                    authDomain: "tuo-progetto.firebaseapp.com",
-                    projectId: "tuo-progetto",
-                    storageBucket: "tuo-progetto.appspot.com",
-                    messagingSenderId: "12345",
-                    appId: "1:12345:web:abc"
-                };
-            } catch (e) {
-                return {};
-            }
+        /**
+         * NOTA PER LA PUBBLICAZIONE SU GITHUB:
+         * Se vuoi che i dati vengano salvati, devi creare un progetto su console.firebase.google.com,
+         * abilitare Firestore e l'autenticazione anonima, e incollare qui sotto le tue chiavi.
+         */
+        const MANUAL_FIREBASE_CONFIG = {
+            apiKey: "INSERISCI_QUI_LA_TUA_API_KEY",
+            authDomain: "tuo-progetto.firebaseapp.com",
+            projectId: "tuo-progetto",
+            storageBucket: "tuo-progetto.appspot.com",
+            messagingSenderId: "0000000000",
+            appId: "1:0000000000:web:xxxxxxxxxxxx"
         };
 
         const App = () => {
@@ -73,6 +71,18 @@
             const [loading, setLoading] = useState(true);
             const [errorMsg, setErrorMsg] = useState(null);
 
+            // Funzione per ottenere la configurazione disponibile
+            const getActiveConfig = () => {
+                if (typeof __firebase_config !== 'undefined') {
+                    return JSON.parse(__firebase_config);
+                }
+                // Se siamo fuori dal Canvas, proviamo a usare la manuale se compilata
+                if (MANUAL_FIREBASE_CONFIG.apiKey !== "INSERISCI_QUI_LA_TUA_API_KEY") {
+                    return MANUAL_FIREBASE_CONFIG;
+                }
+                return null;
+            };
+
             useEffect(() => {
                 if (window.FirebaseLib) setFbReady(true);
                 else window.addEventListener('firebase-ready', () => setFbReady(true));
@@ -80,20 +90,19 @@
 
             useEffect(() => {
                 if (!fbReady) return;
-                const { initializeApp, getFirestore, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } = window.FirebaseLib;
                 
-                const firebaseConfig = getSafeConfig();
-                const appId = typeof __app_id !== 'undefined' ? __app_id : 'special-vehicles-archive';
+                const config = getActiveConfig();
                 
-                // Se non c'è config (fuori da Canvas senza chiavi manuali), usiamo dati locali simulati per non mostrare pagina bianca
-                if (!firebaseConfig.apiKey && typeof __firebase_config === 'undefined') {
-                    console.warn("Esecuzione fuori dal Canvas senza Firebase Config. Modalità Demo attiva.");
-                    setVehicles([]);
+                if (!config) {
+                    setErrorMsg("Configurazione Firebase mancante. L'app non può collegarsi al database fuori dall'anteprima.");
                     setLoading(false);
                     return;
                 }
 
-                const app = initializeApp(firebaseConfig);
+                const { initializeApp, getFirestore, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } = window.FirebaseLib;
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'special-vehicles-archive';
+                
+                const app = initializeApp(config);
                 const auth = getAuth(app);
                 const db = getFirestore(app);
 
@@ -105,8 +114,8 @@
                             await signInAnonymously(auth);
                         }
                     } catch (err) { 
-                        console.error(err);
-                        setErrorMsg("Errore di autenticazione."); 
+                        console.error("Auth Error:", err);
+                        setErrorMsg("Errore di autenticazione Firebase."); 
                     }
                 };
                 initAuth();
@@ -115,14 +124,16 @@
                     setUser(u);
                     if (u) {
                         const { collection, query, onSnapshot } = window.FirebaseLib;
+                        const colPath = `/artifacts/${appId}/public/data/vehicles`;
                         const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'vehicles');
                         const q = query(colRef);
+                        
                         const unsubscribeData = onSnapshot(q, (snapshot) => {
                             setVehicles(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })));
                             setLoading(false);
                         }, (err) => { 
-                            console.error(err);
-                            setErrorMsg("Errore database. Verifica le permessi di Firebase."); 
+                            console.error("Firestore Error:", err);
+                            setErrorMsg("Permessi database insufficienti o configurazione errata."); 
                             setLoading(false); 
                         });
                         return () => unsubscribeData();
@@ -142,7 +153,7 @@
             const addVehicle = async (data) => {
                 try {
                     const { getFirestore, collection, addDoc, initializeApp } = window.FirebaseLib;
-                    const db = getFirestore(initializeApp(getSafeConfig()));
+                    const db = getFirestore(initializeApp(getActiveConfig()));
                     const appId = typeof __app_id !== 'undefined' ? __app_id : 'special-vehicles-archive';
                     await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'vehicles'), { ...data, createdAt: Date.now() });
                 } catch (err) {
@@ -154,7 +165,7 @@
             const deleteVehicle = async (id) => {
                 try {
                     const { getFirestore, doc, deleteDoc, initializeApp } = window.FirebaseLib;
-                    const db = getFirestore(initializeApp(getSafeConfig()));
+                    const db = getFirestore(initializeApp(getActiveConfig()));
                     const appId = typeof __app_id !== 'undefined' ? __app_id : 'special-vehicles-archive';
                     await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'vehicles', id));
                 } catch (err) {
@@ -164,7 +175,7 @@
 
             if (loading && !errorMsg) return (
                 <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white">
-                    <div className="text-center"><i className="fa-solid fa-circle-notch fa-spin text-4xl text-orange-500 mb-4"></i><p>Sincronizzazione Cloud...</p></div>
+                    <div className="text-center"><i className="fa-solid fa-circle-notch fa-spin text-4xl text-orange-500 mb-4"></i><p>Connessione al Cloud...</p></div>
                 </div>
             );
 
@@ -174,7 +185,7 @@
                         <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
                             <div className="flex items-center gap-3 cursor-pointer" onClick={() => setView('home')}>
                                 <i className="fa-solid fa-truck-fast text-2xl text-orange-500"></i>
-                                <div><h1 className="text-xl font-bold">SpecialVehicles Archive</h1><p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Gestione Flotta Cloud</p></div>
+                                <div><h1 className="text-xl font-bold">SpecialVehicles Archive</h1><p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Flotta Dicembre</p></div>
                             </div>
                             <nav className="flex gap-2">
                                 <Button variant="secondary" onClick={() => setView(view === 'home' ? 'admin' : 'home')} className="!rounded-full text-xs">
@@ -186,9 +197,17 @@
 
                     <main className="flex-grow max-w-7xl mx-auto px-4 py-8 w-full fade-in">
                         {errorMsg && (
-                            <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4 rounded-r-xl">
-                                <p className="font-bold">Attenzione</p>
-                                <p className="text-sm">{errorMsg} L'applicazione necessita di una configurazione Firebase valida per funzionare fuori dall'anteprima.</p>
+                            <div className="bg-amber-50 border-l-4 border-amber-500 text-amber-800 p-6 mb-8 rounded-r-2xl shadow-sm">
+                                <div className="flex items-center gap-3 mb-2">
+                                    <i className="fa-solid fa-triangle-exclamation text-xl text-amber-600"></i>
+                                    <h3 className="font-black text-lg">Configurazione Richiesta</h3>
+                                </div>
+                                <p className="text-sm leading-relaxed">
+                                    Stai visualizzando l'app fuori dall'ambiente protetto. Per farla funzionare sul tuo sito (GitHub Pages), devi inserire le tue chiavi Firebase nel codice sorgente alla variabile <strong>MANUAL_FIREBASE_CONFIG</strong>.
+                                </p>
+                                <div className="mt-4 p-3 bg-white/50 rounded-lg font-mono text-xs overflow-auto">
+                                    console.firebase.google.com &gt; Project Settings &gt; General &gt; Your Apps
+                                </div>
                             </div>
                         )}
                         {view === 'home' && <PublicGallery vehicles={vehicles} />}
@@ -238,13 +257,13 @@
                     <div className="flex flex-col md:flex-row justify-between items-center gap-6 border-b pb-8">
                         <div>
                             <h2 className="text-4xl font-black text-slate-800 tracking-tight">Catalogo Mezzi</h2>
-                            <p className="text-slate-500">Esplora la nostra flotta operativa in tempo reale.</p>
+                            <p className="text-slate-500">Visualizza i mezzi disponibili nella flotta.</p>
                         </div>
                         <div className="relative w-full md:w-96">
                             <i className="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
                             <input 
                                 type="text" 
-                                placeholder="Cerca per targa o descrizione..." 
+                                placeholder="Cerca targa o modello..." 
                                 className="w-full pl-12 pr-4 py-4 bg-white border-2 border-slate-100 rounded-2xl outline-none focus:border-orange-500 search-glow transition-all font-medium text-slate-700 shadow-sm"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -258,13 +277,13 @@
                                 <div key={v.id} onClick={() => openModal(v)} className="bg-white rounded-3xl overflow-hidden shadow-sm hover:shadow-xl transition-all cursor-pointer border border-transparent hover:border-orange-100 group flex flex-col">
                                     <div className="relative aspect-video bg-slate-100">
                                         {v.images?.[0] ? (
-                                            <img src={v.images[0]} alt="Cover" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                                            <img src={v.images[0]} alt="Mezzo" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                                         ) : (
                                             <div className="w-full h-full flex items-center justify-center text-slate-300">
                                                 <i className="fa-solid fa-image text-4xl"></i>
                                             </div>
                                         )}
-                                        <div className="absolute top-4 left-4 px-3 py-1 bg-white/90 backdrop-blur text-orange-600 rounded-full font-mono font-bold text-xs shadow-sm uppercase tracking-tighter">{v.plate}</div>
+                                        <div className="absolute top-4 left-4 px-3 py-1 bg-white/90 backdrop-blur text-orange-600 rounded-full font-mono font-bold text-xs shadow-sm uppercase">{v.plate}</div>
                                     </div>
                                     <div className="p-6 flex-grow flex flex-col">
                                         <h3 className="font-bold text-slate-800 h-12 line-clamp-2 mb-4 leading-tight">{v.description}</h3>
@@ -280,8 +299,8 @@
                         </div>
                     ) : (
                         <div className="py-20 text-center">
-                            <i className="fa-solid fa-magnifying-glass-minus text-5xl text-slate-200 mb-4"></i>
-                            <p className="text-slate-400 font-medium italic">Nessun mezzo trovato per "{searchTerm}"</p>
+                            <i className="fa-solid fa-folder-open text-5xl text-slate-200 mb-4"></i>
+                            <p className="text-slate-400 font-medium italic">Nessun dato da mostrare.</p>
                         </div>
                     )}
 
@@ -308,23 +327,17 @@
                                             )}
                                         </>
                                     ) : (
-                                        <div className="w-full h-full flex items-center justify-center text-slate-700">
-                                            <i className="fa-solid fa-image text-6xl"></i>
-                                        </div>
+                                        <div className="w-full h-full flex items-center justify-center text-slate-700 text-6xl"><i className="fa-solid fa-image"></i></div>
                                     )}
                                 </div>
 
                                 <div className="p-8">
                                     <div className="flex items-center gap-3 mb-4">
                                         <div className="bg-slate-900 text-white font-mono font-bold px-4 py-1 rounded-lg text-lg">{selected.plate}</div>
-                                        <span className="text-sm text-slate-400">Archivio Cloud</span>
                                     </div>
                                     <h2 className="text-3xl font-black text-slate-800 mb-4">{selected.description}</h2>
                                     <div className="flex flex-col md:flex-row gap-6 items-center border-t pt-6">
                                         <div className="text-4xl font-black text-orange-600">€ {Number(selected.price).toLocaleString('it-IT')}</div>
-                                        <Button variant="primary" className="w-full !py-4 text-lg" onClick={() => window.location.href=`mailto:logistica@example.com?subject=Richiesta Mezzo ${selected.plate}`}>
-                                            Invia Richiesta
-                                        </Button>
                                     </div>
                                 </div>
                             </div>
@@ -368,9 +381,10 @@
                                 className="w-full p-4 bg-slate-50 border-2 rounded-2xl outline-none focus:border-orange-500 text-center font-bold" 
                                 value={pass} 
                                 onChange={e => setPass(e.target.value)} 
+                                onKeyPress={(e) => e.key === 'Enter' && handleAttempt()}
                             />
                         </div>
-                        {err && <p className="text-red-500 text-xs font-bold mt-4 bg-red-50 p-2 rounded-lg">Accesso Negato</p>}
+                        {err && <p className="text-red-500 text-xs font-bold mt-4 bg-red-50 p-2 rounded-lg">Credenziali Errate</p>}
                         <Button variant="primary" className="w-full py-4 mt-8" onClick={handleAttempt}>Accedi</Button>
                     </div>
                 </div>
@@ -458,7 +472,7 @@
                                         {isUploading ? <i className="fa-solid fa-circle-notch fa-spin text-orange-500"></i> : 
                                         <>
                                             <i className="fa-solid fa-cloud-arrow-up text-2xl text-slate-300 group-hover:text-orange-500 mb-2"></i>
-                                            <span className="text-[10px] text-slate-400 font-bold uppercase text-center">Carica foto dal PC</span>
+                                            <span className="text-[10px] text-slate-400 font-bold uppercase text-center">Carica foto</span>
                                         </>}
                                     </label>
                                     <div className="flex gap-2 mt-4">
@@ -506,7 +520,7 @@
                                         </td>
                                     </tr>
                                 ))}
-                                {vehicles.length === 0 && <tr><td colSpan="4" className="p-10 text-center text-slate-400 italic font-medium">Nessun mezzo in archivio.</td></tr>}
+                                {vehicles.length === 0 && <tr><td colSpan="4" className="p-10 text-center text-slate-400 italic font-medium">Archivio vuoto.</td></tr>}
                             </tbody>
                         </table>
                     </div>
