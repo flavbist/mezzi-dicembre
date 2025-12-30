@@ -48,6 +48,22 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 
+        // Configurazione di sicurezza per evitare il crash fuori dal Canvas
+        const getSafeConfig = () => {
+            try {
+                return typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+                    apiKey: "AIzaSy...", // Qui andrebbe la tua chiave se volessi renderlo autonomo
+                    authDomain: "tuo-progetto.firebaseapp.com",
+                    projectId: "tuo-progetto",
+                    storageBucket: "tuo-progetto.appspot.com",
+                    messagingSenderId: "12345",
+                    appId: "1:12345:web:abc"
+                };
+            } catch (e) {
+                return {};
+            }
+        };
+
         const App = () => {
             const [fbReady, setFbReady] = useState(false);
             const [view, setView] = useState('home'); 
@@ -65,11 +81,21 @@
             useEffect(() => {
                 if (!fbReady) return;
                 const { initializeApp, getFirestore, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } = window.FirebaseLib;
-                const firebaseConfig = JSON.parse(__firebase_config);
+                
+                const firebaseConfig = getSafeConfig();
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'special-vehicles-archive';
+                
+                // Se non c'è config (fuori da Canvas senza chiavi manuali), usiamo dati locali simulati per non mostrare pagina bianca
+                if (!firebaseConfig.apiKey && typeof __firebase_config === 'undefined') {
+                    console.warn("Esecuzione fuori dal Canvas senza Firebase Config. Modalità Demo attiva.");
+                    setVehicles([]);
+                    setLoading(false);
+                    return;
+                }
+
                 const app = initializeApp(firebaseConfig);
                 const auth = getAuth(app);
                 const db = getFirestore(app);
-                const appId = typeof __app_id !== 'undefined' ? __app_id : 'special-vehicles-archive';
 
                 const initAuth = async () => {
                     try {
@@ -78,7 +104,10 @@
                         } else {
                             await signInAnonymously(auth);
                         }
-                    } catch (err) { setErrorMsg("Errore di autenticazione."); }
+                    } catch (err) { 
+                        console.error(err);
+                        setErrorMsg("Errore di autenticazione."); 
+                    }
                 };
                 initAuth();
 
@@ -93,7 +122,7 @@
                             setLoading(false);
                         }, (err) => { 
                             console.error(err);
-                            setErrorMsg("Errore database."); 
+                            setErrorMsg("Errore database. Verifica le permessi di Firebase."); 
                             setLoading(false); 
                         });
                         return () => unsubscribeData();
@@ -103,7 +132,6 @@
             }, [fbReady]);
 
             const handleLogin = (username, password) => {
-                // Nuove credenziali richieste
                 if (username && username.trim().toUpperCase() === 'FLAVIO' && password === '1710') {
                     setIsAdmin(true);
                     return true;
@@ -114,7 +142,7 @@
             const addVehicle = async (data) => {
                 try {
                     const { getFirestore, collection, addDoc, initializeApp } = window.FirebaseLib;
-                    const db = getFirestore(initializeApp(JSON.parse(__firebase_config)));
+                    const db = getFirestore(initializeApp(getSafeConfig()));
                     const appId = typeof __app_id !== 'undefined' ? __app_id : 'special-vehicles-archive';
                     await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'vehicles'), { ...data, createdAt: Date.now() });
                 } catch (err) {
@@ -124,10 +152,14 @@
             };
 
             const deleteVehicle = async (id) => {
-                const { getFirestore, doc, deleteDoc, initializeApp } = window.FirebaseLib;
-                const db = getFirestore(initializeApp(JSON.parse(__firebase_config)));
-                const appId = typeof __app_id !== 'undefined' ? __app_id : 'special-vehicles-archive';
-                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'vehicles', id));
+                try {
+                    const { getFirestore, doc, deleteDoc, initializeApp } = window.FirebaseLib;
+                    const db = getFirestore(initializeApp(getSafeConfig()));
+                    const appId = typeof __app_id !== 'undefined' ? __app_id : 'special-vehicles-archive';
+                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'vehicles', id));
+                } catch (err) {
+                    console.error(err);
+                }
             };
 
             if (loading && !errorMsg) return (
@@ -153,7 +185,12 @@
                     </header>
 
                     <main className="flex-grow max-w-7xl mx-auto px-4 py-8 w-full fade-in">
-                        {errorMsg && <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4">{errorMsg}</div>}
+                        {errorMsg && (
+                            <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4 rounded-r-xl">
+                                <p className="font-bold">Attenzione</p>
+                                <p className="text-sm">{errorMsg} L'applicazione necessita di una configurazione Firebase valida per funzionare fuori dall'anteprima.</p>
+                            </div>
+                        )}
                         {view === 'home' && <PublicGallery vehicles={vehicles} />}
                         {view === 'admin' && !isAdmin && <AdminLogin onLogin={handleLogin} />}
                         {view === 'admin' && isAdmin && <AdminDashboard vehicles={vehicles} onAdd={addVehicle} onDelete={deleteVehicle} />}
@@ -186,8 +223,8 @@
 
             const filteredVehicles = useMemo(() => {
                 return vehicles.filter(v => 
-                    v.plate.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                    v.description.toLowerCase().includes(searchTerm.toLowerCase())
+                    v.plate?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                    v.description?.toLowerCase().includes(searchTerm.toLowerCase())
                 ).sort((a,b) => b.createdAt - a.createdAt);
             }, [vehicles, searchTerm]);
 
